@@ -1,0 +1,23 @@
+{
+  "name": "advanced-character-controller-roblox-sync",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "AdvancedCharacterController": {
+        "$path": "src/ReplicatedStorage/AdvancedCharacterController"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "AdvancedController": {
+          "$path": "src/StarterPlayer/StarterPlayerScripts/AdvancedController"
+        }
+      }
+    },
+    "ServerScriptService": {
+      "AdvancedControllerServer": {
+        "$path": "src/ServerScriptService/AdvancedControllerServer"
+      }
+    }
+  }
+}
