@@ -38,6 +38,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("AdvancedCharacterController"):WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
+local Debug = require(Shared:WaitForChild("Debug"))
 local Util = require(Shared:WaitForChild("Util"))
 
 local CameraCollision = {}
@@ -138,7 +139,9 @@ function CameraClient:Start()
         UserInputService.MouseIconEnabled = false
     end
     RunService:BindToRenderStep("Controller_Camera", Enum.RenderPriority.Camera.Value, function(dt)
-        self:Update(dt)
+        Debug.Try(Debug.Channels.Movement, "CameraClient:Update", function()
+            self:Update(dt)
+        end)
     end)
 end
 

@@ -13,6 +13,7 @@ Debug.Channels = {
 
 local debugConfig = Config.Debug or {}
 local channelConfig = debugConfig.Channels or {}
+local lastErrorByKey = {}
 
 local function isChannelEnabled(channel)
     if debugConfig.Enabled == false then return false end
@@ -49,7 +50,13 @@ function Debug.Try(channel, label, callback, ...)
         return callback(table.unpack(args, 1, args.n))
     end, debug.traceback))
     if not result[1] then
-        Debug.Error(channel, "%s failed:\n%s", label, result[2])
+        local key = tostring(channel) .. ":" .. tostring(label)
+        local now = os.clock()
+        local cooldown = tonumber(debugConfig.ErrorRepeatCooldown) or 1.5
+        if now - (lastErrorByKey[key] or 0) >= cooldown then
+            lastErrorByKey[key] = now
+            Debug.Error(channel, "%s failed:\n%s", label, result[2])
+        end
         return false
     end
     return true, table.unpack(result, 2, result.n)

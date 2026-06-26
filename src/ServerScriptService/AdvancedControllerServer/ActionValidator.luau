@@ -81,7 +81,7 @@ local Validator = {}
 Validator.__index = Validator
 
 function Validator.new(playerState)
-    return setmetatable({ PlayerState = playerState, RateLimiter = RateLimiter.new(), Cooldowns = CooldownGate.new(), Sanity = SanityChecks.new(playerState) }, Validator)
+    return setmetatable({ PlayerState = playerState, RateLimiter = RateLimiter.new(), Cooldowns = CooldownGate.new(), Sanity = Sanity.new(playerState) }, Validator)
 end
 
 function Validator:Validate(player, actionName, data)

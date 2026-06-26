@@ -45,6 +45,7 @@ end
 -- Main ------------------------------------------------------------
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("AdvancedCharacterController"):WaitForChild("Shared")
+local Debug = require(Shared:WaitForChild("Debug"))
 local Net = require(Shared:WaitForChild("Net"))
 local MeleeDefs = require(Shared:WaitForChild("MeleeDefinitions"))
 
@@ -69,7 +70,9 @@ end
 function MeleeClient:Start()
     self.Remote = Net.GetRemoteEvent(Net.RemoteEvents.MeleeRequest)
     game:GetService("RunService").Heartbeat:Connect(function()
-        self:Update()
+        Debug.Try(Debug.Channels.Combat, "MeleeClient:Update", function()
+            self:Update()
+        end)
     end)
 end
 

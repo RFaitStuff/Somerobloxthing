@@ -42,13 +42,22 @@ Net.GetRemoteEvent(Net.RemoteEvents.ActionRequest).OnServerEvent:Connect(functio
     end)
 end)
 
-Players.PlayerAdded:Connect(function(player)
+local function setupPlayer(player)
     states:Get(player)
-    player.CharacterAdded:Connect(function(character)
+    local function setupCharacter(character)
         Debug.Try(Debug.Channels.Startup, "CharacterAdded", function()
             collision:ApplyCharacter(character)
             task.wait(0.25)
             inventory:Replicate(player)
         end)
-    end)
-end)
+    end
+    player.CharacterAdded:Connect(setupCharacter)
+    if player.Character then
+        task.spawn(setupCharacter, player.Character)
+    end
+end
+
+Players.PlayerAdded:Connect(setupPlayer)
+for _, player in ipairs(Players:GetPlayers()) do
+    task.spawn(setupPlayer, player)
+end

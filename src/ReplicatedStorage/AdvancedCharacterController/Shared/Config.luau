@@ -162,6 +162,7 @@ return {
     Enabled = true,
     LogsEnabled = false,
     DefaultChannelEnabled = false,
+    ErrorRepeatCooldown = 1.5,
     Channels = {
         Startup = true,
         Network = false,

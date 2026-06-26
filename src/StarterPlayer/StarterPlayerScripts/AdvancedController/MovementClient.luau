@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("AdvancedCharacterController"):WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
+local Debug = require(Shared:WaitForChild("Debug"))
 local Modes = require(Shared:WaitForChild("MovementModes"))
 local Net = require(Shared:WaitForChild("Net"))
 
@@ -72,7 +73,9 @@ end
 function Kinematic:Start()
     self.ActionRemote = Net.GetRemoteEvent(Net.RemoteEvents.ActionRequest)
     self.Connection = RunService.Heartbeat:Connect(function(dt)
-        self:Update(math.clamp(dt, 0, 1 / 20))
+        Debug.Try(Debug.Channels.Movement, "MovementClient:Update", function()
+            self:Update(math.clamp(dt, 0, 1 / 20))
+        end)
     end)
 end
 
