@@ -114,6 +114,7 @@ function CameraClient.new(clientState, inputClient)
     self.Yaw = 0
     self.Pitch = math.rad(12)
     self.CurrentPosition = nil
+    self.CurrentFocus = nil
     self.CurrentFov = Config.Camera.NormalFov
     self.Rig = ShoulderRig.new()
     self.Collision = CameraCollision.new(self)
@@ -138,7 +139,7 @@ function CameraClient:Start()
         UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
         UserInputService.MouseIconEnabled = false
     end
-    RunService:BindToRenderStep("Controller_Camera", Enum.RenderPriority.Camera.Value, function(dt)
+    RunService:BindToRenderStep("Controller_Camera", Enum.RenderPriority.Camera.Value + 1, function(dt)
         Debug.Try(Debug.Channels.Movement, "CameraClient:Update", function()
             self:Update(dt)
         end)
@@ -191,7 +192,7 @@ function CameraClient:Update(dt)
     local mode = self.State.Mode
     local aiming = self.Input:IsHeld("Aim")
     local distance = aiming and camConfig.AimDistance or camConfig.Distance
-    local shoulder = aiming and camConfig.AimShoulderOffset or camConfig.ShoulderOffset
+    local shoulder = math.abs(aiming and camConfig.AimShoulderOffset or camConfig.ShoulderOffset)
     local targetFov = aiming and camConfig.AimFov or camConfig.NormalFov
     if mode == "BulletJumping" or mode == "AirDodging" or mode == "WallHopping" then
         targetFov = camConfig.ParkourFov
@@ -203,8 +204,13 @@ function CameraClient:Update(dt)
     self.CurrentFov += (targetFov - self.CurrentFov) * Util.ExpDecaySharpness(camConfig.FovSharpness, dt)
     self.Camera.FieldOfView = self.CurrentFov
 
-    local focus = self.Root.Position + Vector3.new(0, camConfig.Height, 0)
-    local desired = focus + self:GetRight() * (shoulder * self.Rig.CurrentShoulder) - self:GetForward() * distance
+    local rawFocus = self.Root.Position + Vector3.new(0, camConfig.Height, 0)
+    local focusT = Util.ExpDecaySharpness(camConfig.FocusSharpness or camConfig.PositionSharpness, dt)
+    local focus = self.CurrentFocus and self.CurrentFocus:Lerp(rawFocus, focusT) or rawFocus
+    self.CurrentFocus = focus
+
+    local shoulderSide = math.clamp(self.Rig.CurrentShoulder, -1, 1)
+    local desired = focus + self:GetRight() * (shoulder * shoulderSide) - self:GetForward() * distance
     desired = self.Collision:Resolve(focus, desired, { self.Character })
     self.CurrentPosition = self.CurrentPosition and self.CurrentPosition:Lerp(desired, Util.ExpDecaySharpness(camConfig.PositionSharpness, dt)) or desired
 

@@ -4,7 +4,15 @@ local ActionState = {}
 ActionState.__index = ActionState
 
 function ActionState.new()
-    return setmetatable({ Held = {}, Pressed = {} }, ActionState)
+    return setmetatable({
+        Held = {},
+        Pressed = {},
+        Released = {},
+        PressStarted = {},
+        TapDurations = {},
+        DoubleTapped = {},
+        LastTapTime = {},
+    }, ActionState)
 end
 
 function ActionState:SetHeld(action, isHeld)
@@ -12,11 +20,30 @@ function ActionState:SetHeld(action, isHeld)
     self.Held[action] = isHeld == true
     if isHeld and not wasHeld then
         self.Pressed[action] = true
+        self.PressStarted[action] = os.clock()
+    elseif not isHeld and wasHeld then
+        local now = os.clock()
+        local duration = now - (self.PressStarted[action] or now)
+        self.Released[action] = true
+        self.TapDurations[action] = duration
+        local lastTap = self.LastTapTime[action]
+        if lastTap and now - lastTap <= 0.28 then
+            self.DoubleTapped[action] = true
+            self.LastTapTime[action] = nil
+        else
+            self.LastTapTime[action] = now
+        end
+        self.PressStarted[action] = nil
     end
 end
 
 function ActionState:IsHeld(action)
     return self.Held[action] == true
+end
+
+function ActionState:GetHeldDuration(action)
+    if self.Held[action] ~= true then return 0 end
+    return os.clock() - (self.PressStarted[action] or os.clock())
 end
 
 function ActionState:ConsumePressed(action)
@@ -27,8 +54,30 @@ function ActionState:ConsumePressed(action)
     return false
 end
 
+function ActionState:ConsumeTapped(action, maxDuration)
+    if self.Released[action] and (self.TapDurations[action] or math.huge) <= (maxDuration or 0.2) then
+        self.Released[action] = nil
+        self.TapDurations[action] = nil
+        return true
+    end
+    return false
+end
+
+function ActionState:ConsumeDoubleTapped(action, maxGap, maxTapDuration)
+    if self.DoubleTapped[action] and (self.TapDurations[action] or 0) <= (maxTapDuration or 0.2) then
+        self.DoubleTapped[action] = nil
+        self.Released[action] = nil
+        self.TapDurations[action] = nil
+        return true
+    end
+    return false
+end
+
 function ActionState:ClearTransient()
     table.clear(self.Pressed)
+    table.clear(self.Released)
+    table.clear(self.TapDurations)
+    table.clear(self.DoubleTapped)
 end
 
 -- BindingCodec ------------------------------------------------------------
@@ -230,8 +279,20 @@ function InputClient:IsHeld(action)
     return self.Actions:IsHeld(action)
 end
 
+function InputClient:GetHeldDuration(action)
+    return self.Actions:GetHeldDuration(action)
+end
+
 function InputClient:ConsumePressed(action)
     return self.Actions:ConsumePressed(action)
+end
+
+function InputClient:ConsumeTapped(action, maxDuration)
+    return self.Actions:ConsumeTapped(action, maxDuration)
+end
+
+function InputClient:ConsumeDoubleTapped(action, maxGap, maxTapDuration)
+    return self.Actions:ConsumeDoubleTapped(action, maxGap, maxTapDuration)
 end
 
 function InputClient:GetMoveVector()

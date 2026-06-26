@@ -33,7 +33,7 @@ return {
     Aim = { Enum.UserInputType.MouseButton2, Enum.KeyCode.ButtonL2 },
     Fire = { Enum.UserInputType.MouseButton1, Enum.KeyCode.ButtonR2 },
     Roll = { Enum.KeyCode.Q, Enum.KeyCode.ButtonX },
-    AirDodge = { Enum.KeyCode.LeftAlt, Enum.KeyCode.ButtonR1 },
+    AirDodge = { Enum.KeyCode.ButtonR1 },
     ShoulderSwap = { Enum.KeyCode.H, Enum.KeyCode.V, Enum.KeyCode.DPadLeft },
     Melee = { Enum.KeyCode.E, Enum.KeyCode.ButtonR1 },
     HeavyMelee = { Enum.KeyCode.R, Enum.KeyCode.DPadRight },

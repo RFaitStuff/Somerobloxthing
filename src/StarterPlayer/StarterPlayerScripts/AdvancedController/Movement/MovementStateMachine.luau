@@ -25,8 +25,8 @@ function StateMachine:HandleTransitions(dt)
 
     local jump = c.Input:ConsumePressed("Jump")
     local bullet = c.Input:ConsumePressed("BulletJump")
-    local roll = c.Input:ConsumePressed("Roll")
-    local airDodge = c.Input:ConsumePressed("AirDodge")
+    local roll = c.Input:ConsumePressed("Roll") or c.Input:ConsumeDoubleTapped("Slide", Config.Movement.RollDoubleTapWindow, Config.Movement.DodgeTapMaxTime)
+    local dodgeTapped = c.Input:ConsumeTapped("Sprint", Config.Movement.DodgeTapMaxTime) or c.Input:ConsumeTapped("AirDodge", Config.Movement.DodgeTapMaxTime)
     local slideHeld = c.Input:IsHeld("Slide")
     local crouchHeld = c.Input:IsHeld("Crouch")
     local aimHeld = c.Input:IsHeld("Aim")
@@ -38,8 +38,8 @@ function StateMachine:HandleTransitions(dt)
         if not c.IsGrounded and c.HasWall and c.ActionExecutor:TryWallHop() then return end
         if c.ActionExecutor:TryJump() then return end
     end
-    if roll and c.IsGrounded then c.ActionExecutor:DoRoll(); return end
-    if airDodge or (roll and not c.IsGrounded) then
+    if (roll or dodgeTapped) and c.IsGrounded then c.ActionExecutor:DoRoll(); return end
+    if dodgeTapped or (roll and not c.IsGrounded) then
         if c.AirDodgeAvailable then c.ActionExecutor:DoAirDodge(); return end
     end
 
@@ -47,7 +47,7 @@ function StateMachine:HandleTransitions(dt)
         c:ResetSurfaceActions()
         if self:ShouldSlide() then c.ActionExecutor:StartSlide(); return end
         if crouchHeld then c:SetMode(Modes.Crouching); return end
-        c:SetMode(c.Input:IsHeld("Sprint") and Modes.Sprinting or Modes.Grounded)
+        c:SetMode(c.Input:IsHeld("Sprint") and Modes.Grounded or Modes.Sprinting)
         return
     end
 
@@ -63,8 +63,9 @@ end
 function StateMachine:ShouldSlide()
     local c = self.Controller
     if not c.Input:IsHeld("Slide") then return false end
+    if c.Input.GetHeldDuration and c.Input:GetHeldDuration("Slide") < Config.Movement.SlideHoldToStartTime then return false end
     local planar = Vector3.new(c.Velocity.X, 0, c.Velocity.Z)
-    return planar.Magnitude >= Config.Movement.SlideStartSpeed or c.Input:IsHeld("Sprint")
+    return planar.Magnitude >= Config.Movement.SlideStartSpeed or not c.Input:IsHeld("Sprint")
 end
 
 return StateMachine

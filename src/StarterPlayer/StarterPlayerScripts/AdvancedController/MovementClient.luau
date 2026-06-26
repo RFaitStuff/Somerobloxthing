@@ -100,12 +100,14 @@ end
 
 function Kinematic:ApplyImpulse(impulse)
     if typeof(impulse) ~= "Vector3" then return end
-    local planar = Vector3.new(impulse.X, 0, impulse.Z)
-    if planar.Magnitude > Config.Movement.HardMaxPlanarSpeed then
-        planar = planar.Unit * Config.Movement.HardMaxPlanarSpeed
+    local nextVelocity = self.Velocity + impulse
+    local planar = Vector3.new(nextVelocity.X, 0, nextVelocity.Z)
+    local maxPlanar = Config.Movement.HardMaxPlanarSpeed
+    if planar.Magnitude > maxPlanar then
+        planar = planar.Unit * maxPlanar
     end
-    local y = math.clamp(impulse.Y, -Config.Movement.HardMaxVerticalSpeed, Config.Movement.HardMaxVerticalSpeed)
-    self.Velocity += Vector3.new(planar.X, y, planar.Z)
+    local y = math.clamp(nextVelocity.Y, -Config.Movement.HardMaxVerticalSpeed, Config.Movement.HardMaxVerticalSpeed)
+    self.Velocity = Vector3.new(planar.X, y, planar.Z)
 end
 
 function Kinematic:SetMeleeLock(duration)

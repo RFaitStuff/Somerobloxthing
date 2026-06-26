@@ -58,7 +58,7 @@ function VelocityMotor:GroundMove(dt)
     local c = self.Controller
     local move = c:GetMoveDirection()
     local speedMult = c:GetSpeedMultiplier()
-    local targetSpeed = (c.Input:IsHeld("Sprint") and Config.Movement.SprintSpeed or Config.Movement.WalkSpeed) * speedMult
+    local targetSpeed = (c.Input:IsHeld("Sprint") and Config.Movement.WalkSpeed or Config.Movement.SprintSpeed) * speedMult
     if Config.Movement.SlopeProjectGroundMovement and move.Magnitude > 0.05 then
         move = c.SlopeMotor:GetGroundTangentDirection(move)
     end
@@ -76,11 +76,22 @@ function VelocityMotor:AirMove(dt, multiplier)
     if move.Magnitude > 0.05 then
         local planar = Vector3.new(c.Velocity.X, 0, c.Velocity.Z)
         planar += move.Unit * Config.Movement.AirAcceleration * multiplier * speedMult * dt
-        planar = Util.ClampMagnitude(planar, Config.Movement.MaxPlanarSpeed)
+        planar = Util.ClampMagnitude(planar, self:GetPlanarCap())
         c.Velocity = Vector3.new(planar.X, c.Velocity.Y, planar.Z)
     end
     local dragFactor = math.clamp(1 - Config.Movement.AirDrag * dt, 0, 1)
     c.Velocity = Vector3.new(c.Velocity.X * dragFactor, c.Velocity.Y, c.Velocity.Z * dragFactor)
+end
+
+function VelocityMotor:GetPlanarCap()
+    local mode = self.Controller.Mode
+    if mode == Modes.Sliding then
+        return Config.Movement.SlideMaxPlanarSpeed
+    end
+    if mode == Modes.BulletJumping or mode == Modes.AirDodging or mode == Modes.WallHopping then
+        return Config.Movement.HardMaxPlanarSpeed
+    end
+    return Config.Movement.MaxPlanarSpeed
 end
 
 function VelocityMotor:SlideMove(dt)
@@ -123,12 +134,7 @@ end
 
 function VelocityMotor:ClampVelocity()
     local c = self.Controller
-    local maxPlanar = Config.Movement.MaxPlanarSpeed
-    if c.Mode == Modes.Sliding then
-        maxPlanar = Config.Movement.SlideMaxPlanarSpeed
-    elseif c.Mode == Modes.BulletJumping or c.Mode == Modes.AirDodging or c.Mode == Modes.WallHopping then
-        maxPlanar = Config.Movement.HardMaxPlanarSpeed
-    end
+    local maxPlanar = self:GetPlanarCap()
     local planar = Util.ClampMagnitude(Vector3.new(c.Velocity.X, 0, c.Velocity.Z), maxPlanar)
     local yMax = c.Mode == Modes.BulletJumping and Config.Movement.HardMaxVerticalSpeed or Config.Movement.MaxVerticalSpeed
     c.Velocity = Vector3.new(planar.X, math.clamp(c.Velocity.Y, -Config.Movement.HardMaxVerticalSpeed, yMax), planar.Z)
