@@ -6,35 +6,41 @@ return {
     -- Scale basis: Warframe base walk/sprint is 6/7.5 m/s. Roblox movement is studs/s.
     -- Using 1 stud ~= 0.28m gives 3.571 studs/m, so 6m/s ~= 21.4 and 7.5m/s ~= 26.8.
     StudsPerMeter = 3.571,
-    WalkSpeed = 21.4,
-    SprintSpeed = 26.8,
+    WalkSpeed = 23,
+    SprintSpeed = 34,
 
     -- Acceleration is derived from target-speed / time-to-target.
-    -- Sprint target in ~0.18s: 26.8 / 0.18 ~= 149. Decel in ~0.14s: 26.8 / 0.14 ~= 191.
-    GroundAcceleration = 150,
-    GroundDeceleration = 190,
-    AirAcceleration = 42,
-    AirDrag = 0.45,
+    -- Sprint target in ~0.18s: 30 / 0.18 ~= 167. Decel in ~0.14s: 30 / 0.14 ~= 214.
+    GroundAcceleration = 185,
+    GroundDeceleration = 150,
+    GroundCoastDeceleration = 55,
+    CounterMoveDeceleration = 230,
+    AirAcceleration = 40,
+    AirDrag = 0.24,
 
     -- Slightly floatier than Roblox default gravity, tuned for a ~2m Warframe-like hop.
-    Gravity = -118,
+    Gravity = -108,
+    RisingGravityScale = 0.82,
+    FallingGravityScale = 1.18,
     GroundStickVelocity = -9,
 
-    -- Jump height formula: v = sqrt(2 * gravity * height). 40 studs/s reaches ~6.8 studs / 1.9m.
-    JumpVelocity = 40,
-    DoubleJumpVelocity = 34,
+    -- Normal/double jump give useful height; bullet jump is still the main vertical parkour burst.
+    JumpVelocity = 42,
+    DoubleJumpVelocity = 40,
     DoubleJumpForwardBoost = 4,
     AirJumpsPerSurface = 1,
 
     CrouchHipHeightScale = 0.55,
     SlideHoldToStartTime = 0.12,
-    SlideStartSpeed = 17,
-    SlideStartBoost = 5.5,
-    SlideFriction = 20,
+    SlideStartSpeed = 22,
+    SlideMinInput = 0.15,
+    SlideMinTime = 0.22,
+    SlideStartBoost = 10,
+    SlideFriction = 18,
     SlideUphillFriction = 36,
-    SlideSteer = 8,
-    SlideExitSpeed = 11,
-    SlideMaxPlanarSpeed = 42,
+    SlideSteer = 6,
+    SlideExitSpeed = 12,
+    SlideMaxPlanarSpeed = 56,
     SlideSlopeGravityMultiplier = 0.28,
     SlideDownhillExtraAcceleration = 9,
     SlideDownhillNormalYThreshold = 0.985,
@@ -48,27 +54,27 @@ return {
     SlopeSnapMaxDownVelocity = -24,
 
     -- Parkour bursts are capped around 1.7x base sprint, enough to feel fast without Roblox tunneling.
-    BulletJumpForwardImpulse = 35,
-    BulletJumpUpImpulse = 30,
+    BulletJumpForwardImpulse = 42,
+    BulletJumpUpImpulse = 48,
     BulletJumpCooldown = 0.12,
     BulletJumpModeTime = 0.18,
     BulletJumpMinUpWhenLookingDown = 0.62,
-    BulletJumpMaxAddedPlanarSpeed = 38,
-    BulletJumpMaxAddedVerticalSpeed = 36,
+    BulletJumpMaxAddedPlanarSpeed = 44,
+    BulletJumpMaxAddedVerticalSpeed = 52,
 
     FocusEnergy = 6,
     AimGlideDrain = 2,
     WallLatchDrain = 1,
-    AimGlideGravityScale = 0.24,
-    AimGlideMaxFallSpeed = -16,
-    AimGlideAirControlMultiplier = 1.15,
+    AimGlideGravityScale = 0.36,
+    AimGlideMaxFallSpeed = -20,
+    AimGlideAirControlMultiplier = 0.75,
 
     DodgeTapMaxTime = 0.18,
     RollDoubleTapWindow = 0.26,
-    RollImpulse = 21,
+    RollImpulse = 34,
     RollModeTime = 0.24,
-    AirDodgeImpulse = 27,
-    AirDodgeUpImpulse = 3,
+    AirDodgeImpulse = 40,
+    AirDodgeUpImpulse = 4,
     AirDodgeModeTime = 0.22,
 
     GroundProbeExtra = 0.45,
@@ -83,10 +89,10 @@ return {
     WallHopModeTime = 0.16,
 
     OrientationSharpness = 22,
-    MaxPlanarSpeed = 46,
-    MaxVerticalSpeed = 82,
-    HardMaxPlanarSpeed = 58,
-    HardMaxVerticalSpeed = 90,
+    MaxPlanarSpeed = 60,
+    MaxVerticalSpeed = 90,
+    HardMaxPlanarSpeed = 78,
+    HardMaxVerticalSpeed = 110,
 },
 
     Camera = {
@@ -96,12 +102,12 @@ return {
     MaxPitch = 78,
     LockMouse = true,
 
-    Height = 3.1,
+    Height = 2.85,
     Distance = 9.25,
     AimDistance = 6.5,
     WallLatchDistance = 7.4,
-    ShoulderOffset = 2.95,
-    AimShoulderOffset = 3.15,
+    ShoulderOffset = 3.3,
+    AimShoulderOffset = 3.45,
     LookAhead = 5.0,
 
     ShoulderSharpness = 28,
@@ -130,11 +136,12 @@ return {
 },
 
     Security = {
+    AntiCheatEnabled = false,
     ActionRateLimitPerSecond = 24,
     PositionReportMaxDistance = 35,
-    MaxHorizontalSpeedSoft = 70,
-    MaxHorizontalSpeedHard = 95,
-    MaxVerticalSpeedHard = 110,
+    MaxHorizontalSpeedSoft = 96,
+    MaxHorizontalSpeedHard = 130,
+    MaxVerticalSpeedHard = 120,
     TeleportDistanceHard = 85,
     CorrectionCooldown = 0.35,
     MeleeRequestRatePerSecond = 12,

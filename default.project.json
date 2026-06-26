@@ -3,20 +3,31 @@
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
+      "Animations": {
+        "$path": "src/ReplicatedStorage/Animations"
+      },
       "AdvancedCharacterController": {
         "$path": "src/ReplicatedStorage/AdvancedCharacterController"
+      }
+    },
+    "ServerStorage": {
+      "AdvancedCharacterData": {
+        "$path": "src/ServerStorage/AdvancedCharacterData"
       }
     },
     "StarterPlayer": {
       "StarterPlayerScripts": {
         "AdvancedController": {
           "$path": "src/StarterPlayer/StarterPlayerScripts/AdvancedController"
+        },
+        "AdvancedSystems": {
+          "$path": "src/StarterPlayer/StarterPlayerScripts/AdvancedSystems"
         }
       }
     },
     "ServerScriptService": {
-      "AdvancedControllerServer": {
-        "$path": "src/ServerScriptService/AdvancedControllerServer"
+      "AdvancedCharacterServer": {
+        "$path": "src/ServerScriptService/AdvancedCharacterServer"
       }
     }
   }

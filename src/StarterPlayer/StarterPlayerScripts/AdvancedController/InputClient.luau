@@ -11,6 +11,7 @@ function ActionState.new()
         PressStarted = {},
         TapDurations = {},
         DoubleTapped = {},
+        DoubleTapGaps = {},
         LastTapTime = {},
     }, ActionState)
 end
@@ -27,8 +28,10 @@ function ActionState:SetHeld(action, isHeld)
         self.Released[action] = true
         self.TapDurations[action] = duration
         local lastTap = self.LastTapTime[action]
-        if lastTap and now - lastTap <= 0.28 then
+        local gap = lastTap and now - lastTap or math.huge
+        if lastTap and gap <= 0.35 then
             self.DoubleTapped[action] = true
+            self.DoubleTapGaps[action] = gap
             self.LastTapTime[action] = nil
         else
             self.LastTapTime[action] = now
@@ -64,8 +67,12 @@ function ActionState:ConsumeTapped(action, maxDuration)
 end
 
 function ActionState:ConsumeDoubleTapped(action, maxGap, maxTapDuration)
-    if self.DoubleTapped[action] and (self.TapDurations[action] or 0) <= (maxTapDuration or 0.2) then
+    if self.DoubleTapped[action]
+        and (self.DoubleTapGaps[action] or math.huge) <= (maxGap or 0.28)
+        and (self.TapDurations[action] or 0) <= (maxTapDuration or 0.2)
+    then
         self.DoubleTapped[action] = nil
+        self.DoubleTapGaps[action] = nil
         self.Released[action] = nil
         self.TapDurations[action] = nil
         return true
@@ -78,6 +85,7 @@ function ActionState:ClearTransient()
     table.clear(self.Released)
     table.clear(self.TapDurations)
     table.clear(self.DoubleTapped)
+    table.clear(self.DoubleTapGaps)
 end
 
 -- BindingCodec ------------------------------------------------------------

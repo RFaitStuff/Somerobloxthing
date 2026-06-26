@@ -29,7 +29,6 @@ return {
     Sprint = { Enum.KeyCode.LeftShift, Enum.KeyCode.ButtonL3 },
     Crouch = { Enum.KeyCode.C, Enum.KeyCode.DPadDown },
     Slide = { Enum.KeyCode.LeftControl, Enum.KeyCode.ButtonB },
-    BulletJump = { Enum.KeyCode.X, Enum.KeyCode.ButtonY },
     Aim = { Enum.UserInputType.MouseButton2, Enum.KeyCode.ButtonL2 },
     Fire = { Enum.UserInputType.MouseButton1, Enum.KeyCode.ButtonR2 },
     Roll = { Enum.KeyCode.Q, Enum.KeyCode.ButtonX },

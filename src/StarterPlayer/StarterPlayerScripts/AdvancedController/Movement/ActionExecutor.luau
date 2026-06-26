@@ -67,9 +67,16 @@ end
 function ActionExecutor:StartSlide()
     local c = self.Controller
     if c:IsMovementLockedByStatus() then return end
+    local move = c:GetMoveDirection()
+    if move.Magnitude < Config.Movement.SlideMinInput then return end
     local planar = Vector3.new(c.Velocity.X, 0, c.Velocity.Z)
-    local dir = planar.Magnitude > 1 and planar.Unit or c:GetFlatForward()
+    local dir = planar.Magnitude > 1 and planar.Unit or move.Unit
+    if planar.Magnitude < Config.Movement.SlideStartSpeed then
+        planar = dir * Config.Movement.SlideStartSpeed
+    end
+    c.Velocity = Vector3.new(planar.X, math.min(c.Velocity.Y, Config.Movement.SlideLaunchVerticalClamp), planar.Z)
     c:ApplyImpulse(dir * Config.Movement.SlideStartBoost)
+    c.ModeTimer = Config.Movement.SlideMinTime
     c:SetMode(Modes.Sliding)
     c:SendAction("Slide")
 end

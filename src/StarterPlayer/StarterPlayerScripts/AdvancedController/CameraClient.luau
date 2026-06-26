@@ -116,6 +116,7 @@ function CameraClient.new(clientState, inputClient)
     self.CurrentPosition = nil
     self.CurrentFocus = nil
     self.CurrentFov = Config.Camera.NormalFov
+    self.MouseUnlocked = false
     self.Rig = ShoulderRig.new()
     self.Collision = CameraCollision.new(self)
     self.AimRay = AimRay.new(self)
@@ -150,6 +151,19 @@ function CameraClient:Destroy()
     RunService:UnbindFromRenderStep("Controller_Camera")
 end
 
+function CameraClient:UpdateMouseLock()
+    local unlocked = UserInputService:IsKeyDown(Enum.KeyCode.LeftAlt) or UserInputService:IsKeyDown(Enum.KeyCode.RightAlt)
+    if self.MouseUnlocked == unlocked then return end
+    self.MouseUnlocked = unlocked
+    if unlocked then
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = true
+    elseif Config.Camera.LockMouse then
+        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+        UserInputService.MouseIconEnabled = false
+    end
+end
+
 function CameraClient:GetForward()
     return CameraMath.Forward(self.Yaw, self.Pitch)
 end
@@ -171,6 +185,10 @@ function CameraClient:GetAimRayFromMuzzle(muzzleWorldPosition)
 end
 
 function CameraClient:UpdateLook(dt)
+    if self.MouseUnlocked then
+        self.Input:GetLookDelta()
+        return
+    end
     local delta = self.Input:GetLookDelta()
     local sensitivity = (self.State.Settings.MouseSensitivity or 1) * Config.Camera.MouseSensitivity
     local invert = self.State.Settings.InvertY and -1 or 1
@@ -185,6 +203,7 @@ end
 
 function CameraClient:Update(dt)
     if not self.Camera or not self.Root then return end
+    self:UpdateMouseLock()
     self:UpdateLook(dt)
     self.Rig:Update(dt)
 

@@ -46,7 +46,7 @@ function StateMachine:HandleTransitions(dt)
     if c.IsGrounded then
         c:ResetSurfaceActions()
         if self:ShouldSlide() then c.ActionExecutor:StartSlide(); return end
-        if crouchHeld then c:SetMode(Modes.Crouching); return end
+        if crouchHeld or slideHeld then c:SetMode(Modes.Crouching); return end
         c:SetMode(c.Input:IsHeld("Sprint") and Modes.Grounded or Modes.Sprinting)
         return
     end
@@ -54,7 +54,7 @@ function StateMachine:HandleTransitions(dt)
     if aimHeld and c.State.CanAimGlide and c.HasWall and c.FocusEnergy > 0 then
         c:SetMode(Modes.WallLatched)
     elseif aimHeld and c.State.CanAimGlide and c.FocusEnergy > 0 then
-        c:SetMode(Modes.AimGliding)
+        c:SetMode(Modes.Gliding)
     elseif c.Mode ~= Modes.BulletJumping and c.Mode ~= Modes.AirDodging and c.Mode ~= Modes.WallHopping then
         c:SetMode(Modes.Airborne)
     end
@@ -64,8 +64,9 @@ function StateMachine:ShouldSlide()
     local c = self.Controller
     if not c.Input:IsHeld("Slide") then return false end
     if c.Input.GetHeldDuration and c.Input:GetHeldDuration("Slide") < Config.Movement.SlideHoldToStartTime then return false end
+    if c:GetMoveDirection().Magnitude < Config.Movement.SlideMinInput then return false end
     local planar = Vector3.new(c.Velocity.X, 0, c.Velocity.Z)
-    return planar.Magnitude >= Config.Movement.SlideStartSpeed or not c.Input:IsHeld("Sprint")
+    return planar.Magnitude >= Config.Movement.SlideStartSpeed
 end
 
 return StateMachine

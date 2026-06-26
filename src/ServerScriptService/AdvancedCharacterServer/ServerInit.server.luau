@@ -1,21 +1,27 @@
 --!nonstrict
 local Players = game:GetService("Players")
 
-local RemoteFactory = require(script.Parent:WaitForChild("RemoteFactory"))
+local Core = script.Parent:WaitForChild("Core")
+local Combat = script.Parent:WaitForChild("Combat")
+local Security = script.Parent:WaitForChild("Security")
+
+local RemoteFactory = require(Core:WaitForChild("RemoteFactory"))
 RemoteFactory.Ensure()
 
-local PlayerStateService = require(script.Parent:WaitForChild("PlayerStateService"))
-local CollisionService = require(script.Parent:WaitForChild("CollisionService"))
-local InventoryService = require(script.Parent:WaitForChild("InventoryService"))
-local ActionValidator = require(script.Parent:WaitForChild("ActionValidator"))
-local MeleeServer = require(script.Parent:WaitForChild("MeleeService"))
-local StatusService = require(script.Parent:WaitForChild("StatusService"))
-local AntiCheat = require(script.Parent:WaitForChild("AntiCheatService"))
-local DataService = require(script.Parent:WaitForChild("DataService"))
+local PlayerStateService = require(Core:WaitForChild("PlayerStateService"))
+local CollisionService = require(Core:WaitForChild("CollisionService"))
+local InventoryService = require(Core:WaitForChild("InventoryService"))
+local DataService = require(Core:WaitForChild("DataService"))
+local MeleeServer = require(Combat:WaitForChild("MeleeService"))
+local StatusService = require(Combat:WaitForChild("StatusService"))
+local ActionValidator = require(Security:WaitForChild("ActionValidator"))
+local AntiCheat = require(Security:WaitForChild("AntiCheatService"))
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Config = require(ReplicatedStorage:WaitForChild("AdvancedCharacterController"):WaitForChild("Shared"):WaitForChild("Config"))
 local Net = require(ReplicatedStorage:WaitForChild("AdvancedCharacterController"):WaitForChild("Shared"):WaitForChild("Net"))
 local Debug = require(ReplicatedStorage:WaitForChild("AdvancedCharacterController"):WaitForChild("Shared"):WaitForChild("Debug"))
+local AnimationRegistry = require(ReplicatedStorage:WaitForChild("AdvancedCharacterController"):WaitForChild("Shared"):WaitForChild("AnimationRegistry"))
 
 local states = PlayerStateService.new()
 local collision = CollisionService.new()
@@ -26,11 +32,16 @@ local status = StatusService.new(states)
 local antiCheat = AntiCheat.new(states)
 local data = DataService.new()
 
+AnimationRegistry.Ensure()
 Debug.Try(Debug.Channels.Startup, "CollisionService:Start", function() collision:Start() end)
 Debug.Try(Debug.Channels.Startup, "InventoryService:Start", function() inventory:Start() end)
 Debug.Try(Debug.Channels.Startup, "StatusService:Start", function() status:Start() end)
 Debug.Try(Debug.Channels.Startup, "MeleeService:Start", function() melee:Start(status) end)
-Debug.Try(Debug.Channels.Startup, "AntiCheatService:Start", function() antiCheat:Start() end)
+if Config.Security.AntiCheatEnabled then
+    Debug.Try(Debug.Channels.Startup, "AntiCheatService:Start", function() antiCheat:Start() end)
+else
+    Debug.Warn(Debug.Channels.Startup, "AntiCheatService disabled while movement is being tuned")
+end
 Debug.Try(Debug.Channels.Startup, "DataService:Start", function() data:Start() end)
 
 Net.GetRemoteEvent(Net.RemoteEvents.ActionRequest).OnServerEvent:Connect(function(player, actionName, payload)
