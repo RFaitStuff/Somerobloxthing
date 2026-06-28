@@ -1,6 +1,6 @@
 --!nonstrict
-local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("AdvancedCharacterController"):WaitForChild("Shared"):WaitForChild("Config"))
-local Modes = require(game:GetService("ReplicatedStorage"):WaitForChild("AdvancedCharacterController"):WaitForChild("Shared"):WaitForChild("MovementModes"))
+local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Config"))
+local Modes = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("MovementModes"))
 
 local HumanoidAdapter = {}
 HumanoidAdapter.__index = HumanoidAdapter
@@ -27,10 +27,13 @@ function HumanoidAdapter:Update(dt)
     if not humanoid or not self.DefaultHipHeight then return end
 
     local target = self.DefaultHipHeight
-    if controller.Input:IsHeld("Crouch") or controller.Mode == Modes.Sliding or controller.Mode == Modes.KnockedDown then
+    if controller.Mode == Modes.Sliding or controller.Mode == Modes.KnockedDown then
+        target = self.DefaultHipHeight * Config.Movement.SlideHipHeightScale
+    elseif controller.Input:IsHeld("Crouch") or controller.Mode == Modes.Crouching then
         target = self.DefaultHipHeight * Config.Movement.CrouchHipHeightScale
     end
-    humanoid.HipHeight += (target - humanoid.HipHeight) * (1 - math.exp(-18 * dt))
+    local sharpness = Config.Movement.HipHeightSharpness or 12
+    humanoid.HipHeight += (target - humanoid.HipHeight) * (1 - math.exp(-sharpness * dt))
     humanoid.AutoRotate = false
     humanoid.PlatformStand = false
     humanoid:Move(Vector3.zero, false)

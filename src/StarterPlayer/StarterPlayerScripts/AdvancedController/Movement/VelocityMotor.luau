@@ -1,5 +1,5 @@
 --!nonstrict
-local Shared = game:GetService("ReplicatedStorage"):WaitForChild("AdvancedCharacterController"):WaitForChild("Shared")
+local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Modes = require(Shared:WaitForChild("MovementModes"))
 local Util = require(Shared:WaitForChild("Util"))
@@ -22,12 +22,23 @@ function VelocityMotor:Integrate(dt)
         c.FocusEnergy = math.max(0, c.FocusEnergy - Config.Movement.WallLatchDrain * dt)
         c.Velocity = Vector3.zero
         if c.FocusEnergy <= 0 or not c.Input:IsHeld("Aim") then c:SetMode(Modes.Airborne) end
-    elseif mode == Modes.Gliding or mode == Modes.AimGliding then
+    elseif mode == Modes.AimGliding then
         c.FocusEnergy = math.max(0, c.FocusEnergy - Config.Movement.AimGlideDrain * dt)
+        c.AimGlideTimeRemaining = math.max(0, (c.AimGlideTimeRemaining or Config.Movement.AimGlideMaxDuration) - dt)
+        local beforePlanar = Vector3.new(c.Velocity.X, 0, c.Velocity.Z)
         self:AirMove(dt, Config.Movement.AimGlideAirControlMultiplier)
-        c.Velocity = Vector3.new(c.Velocity.X, math.max(c.Velocity.Y, Config.Movement.AimGlideMaxFallSpeed), c.Velocity.Z)
-        self:ApplyGravity(dt, Config.Movement.AimGlideGravityScale, true)
-        if c.FocusEnergy <= 0 or not c.Input:IsHeld("Aim") or not c.State.CanAimGlide then c:SetMode(Modes.Airborne) end
+        local afterPlanar = Vector3.new(c.Velocity.X, 0, c.Velocity.Z)
+        local preservedPlanar = beforePlanar * (Config.Movement.AimGlideMomentumPreserve or 0.985)
+        if preservedPlanar.Magnitude > afterPlanar.Magnitude then
+            c.Velocity = Vector3.new(preservedPlanar.X, c.Velocity.Y, preservedPlanar.Z)
+        end
+        if c.Velocity.Y < 0 then
+            self:ApplyGravity(dt, Config.Movement.AimGlideGravityScale)
+            c.Velocity = Vector3.new(c.Velocity.X, math.max(c.Velocity.Y, Config.Movement.AimGlideMaxFallSpeed), c.Velocity.Z)
+        else
+            self:ApplyGravity(dt, 1)
+        end
+        if c.FocusEnergy <= 0 or (c.AimGlideTimeRemaining or 0) <= 0 or not c.Input:IsHeld("Aim") or not c.State.CanAimGlide then c:SetMode(Modes.Airborne) end
     elseif mode == Modes.Sliding then
         self:SlideMove(dt)
         self:ApplyGravity(dt, 1)
@@ -38,6 +49,7 @@ function VelocityMotor:Integrate(dt)
         self:AirMove(dt, 1)
         self:ApplyGravity(dt, 1)
     end
+    self:ApplyVariableJump(dt)
     self:ClampVelocity()
     self:AvoidDrivingIntoWalls()
 end
@@ -58,15 +70,18 @@ function VelocityMotor:GroundMove(dt)
     local c = self.Controller
     local move = c:GetMoveDirection()
     local speedMult = c:GetSpeedMultiplier()
-    local targetSpeed = (c.Input:IsHeld("Sprint") and Config.Movement.WalkSpeed or Config.Movement.SprintSpeed) * speedMult
+    local targetSpeed = c.Input:IsHeld("Sprint") and Config.Movement.WalkSpeed or Config.Movement.SprintSpeed
+    if c.Mode == Modes.Crouching then
+        targetSpeed = Config.Movement.CrouchSpeed
+    end
+    targetSpeed *= speedMult
     if Config.Movement.SlopeProjectGroundMovement and move.Magnitude > 0.05 then
         move = c.SlopeMotor:GetGroundTangentDirection(move)
     end
     local planar = Vector3.new(c.Velocity.X, 0, c.Velocity.Z)
-    local accel = Config.Movement.GroundCoastDeceleration or Config.Movement.GroundDeceleration
-    if move.Magnitude > 0.05 then
-        local opposing = planar.Magnitude > 0.05 and move.Unit:Dot(planar.Unit) < -0.2
-        accel = opposing and (Config.Movement.CounterMoveDeceleration or Config.Movement.GroundDeceleration) or Config.Movement.GroundAcceleration
+    local accel = move.Magnitude > 0.05 and Config.Movement.GroundAcceleration or Config.Movement.GroundDeceleration
+    if move.Magnitude > 0.05 and targetSpeed >= Config.Movement.SprintSpeed then
+        accel = Config.Movement.SprintRampAcceleration or accel
     end
     planar = self:MoveToward(planar, move * targetSpeed, accel * speedMult * dt)
     planar = c.SlopeMotor:ApplyGroundSlopeAssist(planar, dt)
@@ -101,11 +116,21 @@ end
 function VelocityMotor:SlideMove(dt)
     local c = self.Controller
     local planar = Vector3.new(c.Velocity.X, 0, c.Velocity.Z)
-    local move = c:GetMoveDirection()
+    local rawMove = c.Input and c.Input:GetMoveVector() or Vector2.zero
     local speedMult = c:GetSpeedMultiplier()
     planar = c.SlopeMotor:ApplySlideSlope(planar, dt)
-    if move.Magnitude > 0.05 and planar.Magnitude > 0.05 then
-        planar = planar:Lerp(move.Unit * planar.Magnitude, math.clamp(Config.Movement.SlideSteer * dt * math.max(speedMult, 0.2), 0, 1))
+
+    if rawMove.Y > Config.Movement.SlideForwardExitInput and c.ModeTimer <= 0 then
+        c:SetMode(c.IsGrounded and Modes.Sprinting or Modes.Airborne)
+        return
+    end
+
+    if math.abs(rawMove.X) > 0.05 and planar.Magnitude > 0.05 then
+        local currentDir = planar.Unit
+        local right = c.Camera and c.Camera:GetRight() or Vector3.new(-currentDir.Z, 0, currentDir.X)
+        right = Util.SafeUnit(Vector3.new(right.X, 0, right.Z), Vector3.new(-currentDir.Z, 0, currentDir.X))
+        local steerDir = Util.SafeUnit(currentDir + right * rawMove.X * 0.55, currentDir)
+        planar = planar:Lerp(steerDir * planar.Magnitude, math.clamp(Config.Movement.SlideSteer * dt * math.max(speedMult, 0.2), 0, 1))
     end
     planar = self:MoveToward(planar, Vector3.zero, (Config.Movement.SlideFriction + c.SlopeMotor:GetUphillFriction(planar)) * dt)
     planar = Util.ClampMagnitude(planar, Config.Movement.SlideMaxPlanarSpeed)
@@ -115,26 +140,44 @@ function VelocityMotor:SlideMove(dt)
     end
     c.Velocity = Vector3.new(planar.X, y, planar.Z)
     if planar.Magnitude <= Config.Movement.SlideExitSpeed and c.ModeTimer <= 0 then
-        if c.IsGrounded and c.Input:IsHeld("Slide") then
-            c:SetMode(Modes.Crouching)
+        if c.IsGrounded then
+            c:SetMode(c.Input:IsHeld("Slide") and Modes.Crouching or Modes.Grounded)
         else
-            c:SetMode(c.IsGrounded and Modes.Grounded or Modes.Airborne)
+            c:SetMode(Modes.Airborne)
         end
+    elseif not c.Input:IsHeld("Slide") and c.ModeTimer <= 0 then
+        c:SetMode(c.IsGrounded and Modes.Grounded or Modes.Airborne)
     end
 end
 
-function VelocityMotor:ApplyGravity(dt, scale, ignoreRiseFallScale)
+function VelocityMotor:ApplyGravity(dt, scale)
     local c = self.Controller
     if c.IsGrounded and c.Velocity.Y < 0 then
         local stick = c.Mode == Modes.Sliding and Config.Movement.SlideGroundStickVelocity or Config.Movement.GroundStickVelocity
         c.Velocity = Vector3.new(c.Velocity.X, stick, c.Velocity.Z)
     else
-        local phaseScale = 1
-        if not ignoreRiseFallScale then
-            phaseScale = c.Velocity.Y > 0 and (Config.Movement.RisingGravityScale or 1) or (Config.Movement.FallingGravityScale or 1)
-        end
-        c.Velocity += Vector3.yAxis * Config.Movement.Gravity * scale * phaseScale * dt
+        c.Velocity += Vector3.yAxis * Config.Movement.Gravity * scale * dt
     end
+end
+
+function VelocityMotor:ApplyVariableJump(dt)
+    local c = self.Controller
+    if not c.JumpCutAllowed or c.Velocity.Y <= 0 then return end
+
+    c.JumpHoldTimer = math.max(0, (c.JumpHoldTimer or 0) - dt)
+    if c.Input:IsHeld("Jump") then
+        if c.JumpHoldTimer > 0 then
+            return
+        end
+        c.JumpCutAllowed = false
+        return
+    end
+
+    local cutVelocity = Config.Movement.JumpCutMinVelocity or 22
+    if c.Velocity.Y > cutVelocity then
+        c.Velocity = Vector3.new(c.Velocity.X, cutVelocity, c.Velocity.Z)
+    end
+    c.JumpCutAllowed = false
 end
 
 function VelocityMotor:AvoidDrivingIntoWalls()

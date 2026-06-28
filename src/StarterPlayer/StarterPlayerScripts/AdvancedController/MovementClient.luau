@@ -2,7 +2,7 @@
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Shared = ReplicatedStorage:WaitForChild("AdvancedCharacterController"):WaitForChild("Shared")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Debug = require(Shared:WaitForChild("Debug"))
 local Modes = require(Shared:WaitForChild("MovementModes"))
@@ -40,11 +40,19 @@ function Kinematic.new(clientState, inputClient, cameraClient, animationClient)
     self.GroundNormal = Vector3.yAxis
     self.HasWall = false
     self.WallNormal = Vector3.zero
+    self.WallTangent = Vector3.zero
+    self.WallApproach = 0
+    self.WallContactSide = "None"
     self.FocusEnergy = Config.Movement.FocusEnergy
+    self.AimGlideTimeRemaining = Config.Movement.AimGlideMaxDuration
     self.AirJumpsRemaining = Config.Movement.AirJumpsPerSurface
     self.BulletJumpAvailable = true
     self.AirDodgeAvailable = true
+    self.WallLatchRefreshAvailable = true
     self.BulletJumpCooldown = 0
+    self.SlideBoostCooldown = 0
+    self.JumpHoldTimer = 0
+    self.JumpCutAllowed = false
     self.ModeTimer = 0
     self.MeleeLockTimer = 0
     self.ActionRemote = nil
@@ -95,7 +103,9 @@ function Kinematic:ResetSurfaceActions()
     self.AirJumpsRemaining = Config.Movement.AirJumpsPerSurface
     self.BulletJumpAvailable = true
     self.AirDodgeAvailable = true
+    self.WallLatchRefreshAvailable = true
     self.FocusEnergy = Config.Movement.FocusEnergy
+    self.AimGlideTimeRemaining = Config.Movement.AimGlideMaxDuration
 end
 
 function Kinematic:ApplyImpulse(impulse)
@@ -144,6 +154,9 @@ function Kinematic:GetMoveDirection()
 end
 
 function Kinematic:GetAimDirection()
+    if self.Camera and self.Camera.Camera then
+        return self.Camera.Camera.CFrame.LookVector
+    end
     return self.Camera and self.Camera:GetForward() or (self.Root and self.Root.CFrame.LookVector or Vector3.new(0, 0, -1))
 end
 
@@ -161,7 +174,7 @@ end
 function Kinematic:Update(dt)
     if not self.Root or not self.Humanoid or self.Humanoid.Health <= 0 then return end
     self.GroundProbe:Update()
-    self.WallProbe:Update()
+    self.WallProbe:Update(dt)
     self.StatusController:Update(dt)
     self.StateMachine:HandleTransitions(dt)
     self.VelocityMotor:Integrate(dt)

@@ -1,5 +1,5 @@
 --!nonstrict
-local Shared = game:GetService("ReplicatedStorage"):WaitForChild("AdvancedCharacterController"):WaitForChild("Shared")
+local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Modes = require(Shared:WaitForChild("MovementModes"))
 local Util = require(Shared:WaitForChild("Util"))
@@ -15,7 +15,10 @@ function ActionExecutor:TryJump()
     local c = self.Controller
     if c:IsMovementLockedByStatus() then return false end
     if c.IsGrounded then
-        c.Velocity = Vector3.new(c.Velocity.X, Config.Movement.JumpVelocity, c.Velocity.Z)
+        local preserve = Config.Movement.JumpPlanarPreserve or 1
+        c.Velocity = Vector3.new(c.Velocity.X * preserve, Config.Movement.JumpVelocity, c.Velocity.Z * preserve)
+        c.JumpHoldTimer = Config.Movement.JumpHoldMaxTime
+        c.JumpCutAllowed = true
         c:SetMode(Modes.Airborne)
         c:SendAction("Jump")
         return true
@@ -23,8 +26,11 @@ function ActionExecutor:TryJump()
     if c.AirJumpsRemaining > 0 then
         c.AirJumpsRemaining -= 1
         local move = c:GetMoveDirection()
-        c.Velocity = Vector3.new(c.Velocity.X, math.max(c.Velocity.Y, Config.Movement.DoubleJumpVelocity), c.Velocity.Z)
+        local preserve = Config.Movement.DoubleJumpPlanarPreserve or 1
+        c.Velocity = Vector3.new(c.Velocity.X * preserve, math.max(c.Velocity.Y, Config.Movement.DoubleJumpVelocity), c.Velocity.Z * preserve)
         if move.Magnitude > 0 then c:ApplyImpulse(move.Unit * Config.Movement.DoubleJumpForwardBoost) end
+        c.JumpHoldTimer = Config.Movement.JumpHoldMaxTime
+        c.JumpCutAllowed = true
         c:SetMode(Modes.Airborne)
         c:SendAction("DoubleJump")
         return true
@@ -38,15 +44,45 @@ function ActionExecutor:TryBulletJump()
     c.BulletJumpAvailable = false
     c.BulletJumpCooldown = Config.Movement.BulletJumpCooldown
     c.ModeTimer = Config.Movement.BulletJumpModeTime
+    c.JumpCutAllowed = false
 
-    local aim = c:GetAimDirection()
-    if aim.Y < -0.15 then
-        local flat = Util.SafeUnit(Vector3.new(aim.X, 0, aim.Z), c:GetFlatForward())
-        aim = Util.SafeUnit(flat * (1 - Config.Movement.BulletJumpMinUpWhenLookingDown) + Vector3.yAxis * Config.Movement.BulletJumpMinUpWhenLookingDown, Vector3.yAxis)
+    local aim = Util.SafeUnit(c:GetAimDirection(), Vector3.yAxis)
+    local move = c:GetMoveDirection()
+    local flatAim = Vector3.new(aim.X, 0, aim.Z)
+    local rocketPitchY = Config.Movement.BulletJumpRocketPitchY or 0.74
+    local verticalAim = math.abs(aim.Y)
+    local planar
+    local vertical
+
+    if verticalAim >= rocketPitchY then
+        local fallback = move.Magnitude > 0.05 and move.Unit or c:GetFlatForward()
+        local flat = Util.SafeUnit(flatAim, fallback)
+        local t = math.clamp((verticalAim - rocketPitchY) / math.max(1 - rocketPitchY, 0.001), 0, 1)
+        local planarScale = (Config.Movement.BulletJumpRocketPlanarScale or 0.24) * (1 - t * 0.6)
+        planar = Util.ClampMagnitude(flat * Config.Movement.BulletJumpForwardImpulse * planarScale, Config.Movement.BulletJumpMaxAddedPlanarSpeed)
+        vertical = math.min(Config.Movement.BulletJumpRocketUpImpulse or Config.Movement.BulletJumpUpImpulse, Config.Movement.BulletJumpMaxAddedVerticalSpeed)
+    else
+        local blended = aim
+        if move.Magnitude > 0.05 then
+            blended = aim + move.Unit * Config.Movement.BulletJumpMoveInfluence
+        end
+
+        local direction = Util.SafeUnit(blended, aim)
+        if direction.Y < -0.15 then
+            local flat = Util.SafeUnit(Vector3.new(direction.X, 0, direction.Z), c:GetFlatForward())
+            direction = Util.SafeUnit(flat + Vector3.yAxis * Config.Movement.BulletJumpMinUpWhenLookingDown, Vector3.yAxis)
+        end
+
+        planar = Util.ClampMagnitude(Vector3.new(direction.X, 0, direction.Z) * Config.Movement.BulletJumpForwardImpulse, Config.Movement.BulletJumpMaxAddedPlanarSpeed)
+        vertical = math.min(Config.Movement.BulletJumpUpImpulse + math.max(direction.Y, 0) * 28, Config.Movement.BulletJumpMaxAddedVerticalSpeed)
     end
 
-    local planar = Util.ClampMagnitude(Vector3.new(aim.X, 0, aim.Z) * Config.Movement.BulletJumpForwardImpulse, Config.Movement.BulletJumpMaxAddedPlanarSpeed)
-    local vertical = math.min(Config.Movement.BulletJumpUpImpulse + math.max(aim.Y, 0) * 14, Config.Movement.BulletJumpMaxAddedVerticalSpeed)
+    local fromSlide = c.Mode == Modes.Sliding
+    if fromSlide then
+        local currentPlanar = Vector3.new(c.Velocity.X, 0, c.Velocity.Z)
+        planar += Util.ClampMagnitude(currentPlanar * 0.5, Config.Movement.BulletJumpMaxAddedPlanarSpeed * 0.55)
+    end
+
     c:ApplyImpulse(planar + Vector3.yAxis * vertical)
     c:SetMode(Modes.BulletJumping)
     c:SendAction("BulletJump")
@@ -56,9 +92,22 @@ end
 function ActionExecutor:TryWallHop()
     local c = self.Controller
     if c:IsMovementLockedByStatus() or not c.HasWall then return false end
-    c:ApplyImpulse(c.WallNormal * Config.Movement.WallHopAwayImpulse + Vector3.yAxis * Config.Movement.WallHopUpImpulse + c:GetFlatForward() * Config.Movement.WallHopForwardImpulse)
+    local away = Util.SafeUnit(c.WallNormal, Vector3.yAxis)
+    local move = c:GetMoveDirection()
+    local tangent = c.WallTangent and c.WallTangent.Magnitude > 0.05 and c.WallTangent or c:GetFlatForward()
+    if move.Magnitude > 0.05 and move.Unit:Dot(tangent) < 0 then
+        tangent = -tangent
+    end
+    local forward = Util.SafeUnit(tangent + c:GetFlatForward() * 0.35, c:GetFlatForward())
+    local wallPlaneCarry = Vector3.new(c.Velocity.X, 0, c.Velocity.Z)
+    wallPlaneCarry -= away * wallPlaneCarry:Dot(away)
+    c.Velocity = Vector3.new(wallPlaneCarry.X * 0.75, math.max(c.Velocity.Y, 0), wallPlaneCarry.Z * 0.75)
+    c:ApplyImpulse(away * Config.Movement.WallHopAwayImpulse + Vector3.yAxis * Config.Movement.WallHopUpImpulse + forward * Config.Movement.WallHopForwardImpulse)
     c.ModeTimer = Config.Movement.WallHopModeTime
     c:ResetSurfaceActions()
+    if c.WallProbe then
+        c.WallProbe.MemoryTime = 0
+    end
     c:SetMode(Modes.WallHopping)
     c:SendAction("WallHop")
     return true
@@ -67,15 +116,18 @@ end
 function ActionExecutor:StartSlide()
     local c = self.Controller
     if c:IsMovementLockedByStatus() then return end
-    local move = c:GetMoveDirection()
-    if move.Magnitude < Config.Movement.SlideMinInput then return end
     local planar = Vector3.new(c.Velocity.X, 0, c.Velocity.Z)
-    local dir = planar.Magnitude > 1 and planar.Unit or move.Unit
+    local dir = planar.Magnitude > 1 and planar.Unit or c:GetFlatForward()
     if planar.Magnitude < Config.Movement.SlideStartSpeed then
         planar = dir * Config.Movement.SlideStartSpeed
+        c.Velocity = Vector3.new(planar.X, math.min(c.Velocity.Y, Config.Movement.SlideLaunchVerticalClamp), planar.Z)
     end
-    c.Velocity = Vector3.new(planar.X, math.min(c.Velocity.Y, Config.Movement.SlideLaunchVerticalClamp), planar.Z)
-    c:ApplyImpulse(dir * Config.Movement.SlideStartBoost)
+    if (c.SlideBoostCooldown or 0) <= 0 then
+        local currentSpeed = Vector3.new(c.Velocity.X, 0, c.Velocity.Z).Magnitude
+        local boostScale = math.clamp(currentSpeed / math.max(Config.Movement.SprintSpeed, 1), 0.35, 1)
+        c:ApplyImpulse(dir * Config.Movement.SlideStartBoost * boostScale)
+        c.SlideBoostCooldown = Config.Movement.SlideBoostCooldown
+    end
     c.ModeTimer = Config.Movement.SlideMinTime
     c:SetMode(Modes.Sliding)
     c:SendAction("Slide")
@@ -86,10 +138,29 @@ function ActionExecutor:DoRoll()
     if c:IsMovementLockedByStatus() then return end
     local dir = c:GetMoveDirection()
     if dir.Magnitude < 0.05 then dir = c:GetFlatForward() end
+    local planar = Vector3.new(c.Velocity.X, 0, c.Velocity.Z)
+    if planar.Magnitude > 1 then
+        c.Velocity = Vector3.new(planar.X * 0.96, c.Velocity.Y, planar.Z * 0.96)
+    end
     c:ApplyImpulse(dir.Unit * Config.Movement.RollImpulse)
+    c.AirDodgeAvailable = true
     c.ModeTimer = Config.Movement.RollModeTime
     c:SetMode(Modes.Rolling)
     c:SendAction("Roll")
+end
+
+function ActionExecutor:DoDodge()
+    local c = self.Controller
+    if c:IsMovementLockedByStatus() then return end
+    local dir = c:GetMoveDirection()
+    if dir.Magnitude < 0.05 then dir = c:GetFlatForward() end
+    c:ApplyImpulse(dir.Unit * Config.Movement.AirDodgeImpulse + Vector3.yAxis * Config.Movement.AirDodgeUpImpulse)
+    if not c.IsGrounded then
+        c.AirDodgeAvailable = false
+    end
+    c.ModeTimer = Config.Movement.AirDodgeModeTime
+    c:SetMode(Modes.AirDodging)
+    c:SendAction("Dodge")
 end
 
 function ActionExecutor:DoAirDodge()

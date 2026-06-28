@@ -15,8 +15,8 @@ function CameraMath.Right(yaw)
 end
 
 -- ShoulderRig ------------------------------------------------------------
-local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("AdvancedCharacterController"):WaitForChild("Shared"):WaitForChild("Config"))
-local Util = require(game:GetService("ReplicatedStorage"):WaitForChild("AdvancedCharacterController"):WaitForChild("Shared"):WaitForChild("Util"))
+local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Config"))
+local Util = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Util"))
 
 local ShoulderRig = {}
 ShoulderRig.__index = ShoulderRig
@@ -36,7 +36,7 @@ end
 -- CameraCollision ------------------------------------------------------------
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Shared = ReplicatedStorage:WaitForChild("AdvancedCharacterController"):WaitForChild("Shared")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Debug = require(Shared:WaitForChild("Debug"))
 local Util = require(Shared:WaitForChild("Util"))
@@ -96,7 +96,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Shared = ReplicatedStorage:WaitForChild("AdvancedCharacterController"):WaitForChild("Shared")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Util = require(Shared:WaitForChild("Util"))
 
@@ -116,7 +116,6 @@ function CameraClient.new(clientState, inputClient)
     self.CurrentPosition = nil
     self.CurrentFocus = nil
     self.CurrentFov = Config.Camera.NormalFov
-    self.MouseUnlocked = false
     self.Rig = ShoulderRig.new()
     self.Collision = CameraCollision.new(self)
     self.AimRay = AimRay.new(self)
@@ -152,15 +151,13 @@ function CameraClient:Destroy()
 end
 
 function CameraClient:UpdateMouseLock()
-    local unlocked = UserInputService:IsKeyDown(Enum.KeyCode.LeftAlt) or UserInputService:IsKeyDown(Enum.KeyCode.RightAlt)
-    if self.MouseUnlocked == unlocked then return end
-    self.MouseUnlocked = unlocked
-    if unlocked then
-        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-        UserInputService.MouseIconEnabled = true
-    elseif Config.Camera.LockMouse then
+    local unlocked = self.Input and self.Input:IsHeld("CursorUnlock")
+    if Config.Camera.LockMouse and not unlocked then
         UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
         UserInputService.MouseIconEnabled = false
+    else
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = true
     end
 end
 
@@ -169,10 +166,32 @@ function CameraClient:GetForward()
 end
 
 function CameraClient:GetFlatForward()
+    if self.Camera then
+        local look = self.Camera.CFrame.LookVector
+        local flat = Vector3.new(look.X, 0, look.Z)
+        if flat.Magnitude > 0.001 then
+            return flat.Unit
+        end
+    end
     return CameraMath.FlatForward(self.Yaw)
 end
 
 function CameraClient:GetRight()
+    if self.Camera then
+        local right = self.Camera.CFrame.RightVector
+        local flat = Vector3.new(right.X, 0, right.Z)
+        if flat.Magnitude > 0.001 then
+            return flat.Unit
+        end
+    end
+    return CameraMath.Right(self.Yaw)
+end
+
+function CameraClient:GetRigFlatForward()
+    return CameraMath.FlatForward(self.Yaw)
+end
+
+function CameraClient:GetRigRight()
     return CameraMath.Right(self.Yaw)
 end
 
@@ -185,10 +204,6 @@ function CameraClient:GetAimRayFromMuzzle(muzzleWorldPosition)
 end
 
 function CameraClient:UpdateLook(dt)
-    if self.MouseUnlocked then
-        self.Input:GetLookDelta()
-        return
-    end
     local delta = self.Input:GetLookDelta()
     local sensitivity = (self.State.Settings.MouseSensitivity or 1) * Config.Camera.MouseSensitivity
     local invert = self.State.Settings.InvertY and -1 or 1
@@ -224,16 +239,20 @@ function CameraClient:Update(dt)
     self.Camera.FieldOfView = self.CurrentFov
 
     local rawFocus = self.Root.Position + Vector3.new(0, camConfig.Height, 0)
-    local focusT = Util.ExpDecaySharpness(camConfig.FocusSharpness or camConfig.PositionSharpness, dt)
+    local parkourCamera = mode == "BulletJumping" or mode == "AirDodging" or mode == "WallHopping" or mode == "WallLatched"
+    local focusSharpness = parkourCamera and (camConfig.ParkourFocusSharpness or camConfig.FocusSharpness) or (camConfig.FocusSharpness or camConfig.PositionSharpness)
+    local positionSharpness = parkourCamera and (camConfig.ParkourPositionSharpness or camConfig.PositionSharpness) or camConfig.PositionSharpness
+    local focusT = Util.ExpDecaySharpness(focusSharpness, dt)
     local focus = self.CurrentFocus and self.CurrentFocus:Lerp(rawFocus, focusT) or rawFocus
     self.CurrentFocus = focus
 
     local shoulderSide = math.clamp(self.Rig.CurrentShoulder, -1, 1)
-    local desired = focus + self:GetRight() * (shoulder * shoulderSide) - self:GetForward() * distance
+    local desired = focus + self:GetRigRight() * (shoulder * shoulderSide) - self:GetForward() * distance
     desired = self.Collision:Resolve(focus, desired, { self.Character })
-    self.CurrentPosition = self.CurrentPosition and self.CurrentPosition:Lerp(desired, Util.ExpDecaySharpness(camConfig.PositionSharpness, dt)) or desired
+    self.CurrentPosition = self.CurrentPosition and self.CurrentPosition:Lerp(desired, Util.ExpDecaySharpness(positionSharpness, dt)) or desired
 
-    self.Camera.CFrame = CFrame.lookAt(self.CurrentPosition, focus + self:GetForward() * camConfig.LookAhead)
+    local lookAhead = math.max(camConfig.LookAhead, shoulder * 2.4)
+    self.Camera.CFrame = CFrame.lookAt(self.CurrentPosition, focus + self:GetForward() * lookAhead)
 end
 
 return CameraClient

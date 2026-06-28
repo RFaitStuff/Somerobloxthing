@@ -1,5 +1,5 @@
 --!nonstrict
-local Modes = require(game:GetService("ReplicatedStorage"):WaitForChild("AdvancedCharacterController"):WaitForChild("Shared"):WaitForChild("MovementModes"))
+local Modes = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("MovementModes"))
 
 local State = {}
 State.__index = State
@@ -25,7 +25,55 @@ function State.new()
     self.SpeedMultiplier = 1
     self.SoftPlayerCollisionStrength = 0
     self.LastServerCorrection = 0
+    self.Profile = nil
+    self.Stats = nil
+    self.Resources = nil
+    self.LastReward = nil
+    self.Mission = nil
+    self.WeaponRuntime = {}
+    self.AbilityRuntime = {}
+    self.Validation = nil
     return self
+end
+
+function State:ApplyProfilePayload(payload)
+    if typeof(payload) ~= "table" then return end
+    if payload.Profile then self.Profile = payload.Profile end
+    if payload.Stats then self.Stats = payload.Stats end
+    if payload.Resources then self.Resources = payload.Resources end
+    if self.Profile and self.Profile.Equipped then
+        self.EquippedWeaponId = self.Profile.Equipped.ActiveWeapon or self.EquippedWeaponId
+        self.EquippedMeleeId = self.Profile.Equipped.Melee or self.EquippedMeleeId
+    end
+end
+
+function State:ApplyReward(payload)
+    if typeof(payload) ~= "table" then return end
+    self.LastReward = payload
+end
+
+function State:ApplyMission(payload)
+    if typeof(payload) ~= "table" then return end
+    self.Mission = payload.Mission
+end
+
+function State:ApplyWeaponRuntime(payload)
+    if typeof(payload) ~= "table" then return end
+    if payload.WeaponId then
+        self.WeaponRuntime[payload.WeaponId] = payload
+    end
+end
+
+function State:ApplyAbilityRuntime(payload)
+    if typeof(payload) ~= "table" then return end
+    if payload.AbilityId then
+        self.AbilityRuntime[payload.AbilityId] = payload
+    end
+end
+
+function State:ApplyValidation(payload)
+    if typeof(payload) ~= "table" then return end
+    self.Validation = payload
 end
 
 function State:ApplyServerState(payload)
