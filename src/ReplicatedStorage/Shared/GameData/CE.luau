@@ -8,7 +8,7 @@ CE.RepeatEnemyLimit = 60
 
 CE.RoleRewards = {
     Melee = { Might = 2 },
-    Gunner = { Haste = 1, Focus = 0.1 },
+    Gunner = { Haste = 1, Focus = 0.5 },
     Heavy = { Vitality = 1, Guard = 2 },
     Shield = { Guard = 3 },
     Caster = { Focus = 2, Flow = 1 },
