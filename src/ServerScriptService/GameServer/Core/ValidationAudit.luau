@@ -1,6 +1,6 @@
 --!nonstrict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Net = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Net"))
+local Net = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Core"):WaitForChild("Net"))
 
 local ValidationAudit = {
     Remote = nil,

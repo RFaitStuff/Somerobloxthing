@@ -1,0 +1,41 @@
+--!nonstrict
+-- Temporary fallback/reference IDs only. Runtime uses ReplicatedStorage.Animations when present.
+-- Paste vetted animation ids here while replacing placeholders in Studio.
+
+return {
+    Idle = {
+        "rbxassetid://507766666",
+        "rbxassetid://507766951",
+    },
+    Sprint = "rbxassetid://507767714",
+    Crouch = "",
+    Block = "",
+    ["Slide Start"] = "",
+    ["Slide Loop"] = "",
+    BulletJump = "rbxassetid://507765000",
+    DoubleJump = "rbxassetid://507765000",
+    AimGlide = "rbxassetid://507767968",
+    AimGlideForward = "rbxassetid://507767968",
+    AimGlideBackward = "rbxassetid://507765000",
+    AimGlideTurn = "rbxassetid://507765000",
+    WallLatch = "rbxassetid://507765644",
+    WallHopVertical = "rbxassetid://507765000",
+    WallHopHorizontal = "rbxassetid://507765000",
+    HardLanding = "rbxassetid://507770818",
+    RollForward = "",
+    RollBackward = "",
+    RollLeft = "",
+    RollRight = "",
+    DodgeForward = "rbxassetid://522635514",
+    DodgeBackward = "rbxassetid://507767968",
+    DodgeLeft = "rbxassetid://507770453",
+    DodgeRight = "rbxassetid://507770239",
+    AirDodgeForward = "rbxassetid://522635514",
+    AirDodgeBackward = "rbxassetid://507767968",
+    AirDodgeLeft = "rbxassetid://507770453",
+    AirDodgeRight = "rbxassetid://507770239",
+    Hit1 = "",
+    Hit2 = "",
+    Hit3 = "",
+    Hit4 = "",
+}

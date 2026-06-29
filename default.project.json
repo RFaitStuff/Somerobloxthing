@@ -1,5 +1,5 @@
 {
-  "name": "advanced-character-controller-roblox-sync",
+  "name": "somerobloxthing-reorganized",
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
@@ -8,20 +8,17 @@
       }
     },
     "ServerStorage": {
-      "TempAnimations": {
-        "$path": "src/ServerStorage/TempAnimations"
+      "ServerData": {
+        "$path": "src/ServerStorage/ServerData"
       },
-      "GameData": {
-        "$path": "src/ServerStorage/GameData"
+      "ServerAssets": {
+        "$path": "src/ServerStorage/ServerAssets"
       }
     },
     "StarterPlayer": {
       "StarterPlayerScripts": {
-        "AdvancedController": {
-          "$path": "src/StarterPlayer/StarterPlayerScripts/AdvancedController"
-        },
-        "AdvancedSystems": {
-          "$path": "src/StarterPlayer/StarterPlayerScripts/AdvancedSystems"
+        "GameClient": {
+          "$path": "src/StarterPlayer/StarterPlayerScripts/GameClient"
         }
       }
     },

@@ -1,6 +1,6 @@
 --!nonstrict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local StatusTypes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("StatusTypes"))
+local StatusTypes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Data"):WaitForChild("Combat"):WaitForChild("Statuses"))
 
 local ActionLocks = {}
 

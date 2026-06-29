@@ -1,7 +1,7 @@
 --!nonstrict
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Net = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Net"))
+local Net = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Core"):WaitForChild("Net"))
 
 local MeleeAI = require(script.Parent:WaitForChild("MeleeAI"))
 local RangedAI = require(script.Parent:WaitForChild("RangedAI"))

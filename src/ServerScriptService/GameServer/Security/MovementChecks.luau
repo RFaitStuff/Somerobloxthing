@@ -1,6 +1,6 @@
 --!nonstrict
 -- MovementEnvelope ------------------------------------------------------------
-local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Config"))
+local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Core"):WaitForChild("Config"))
 
 local Envelope = {}
 Envelope.__index = Envelope
@@ -42,7 +42,7 @@ end
 -- Main ------------------------------------------------------------
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Net = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Net"))
+local Net = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Core"):WaitForChild("Net"))
 
 local AntiCheat = {}
 AntiCheat.__index = AntiCheat

@@ -1,7 +1,7 @@
 --!nonstrict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Net = require(Shared:WaitForChild("Net"))
+local Net = require(Shared:WaitForChild("Core"):WaitForChild("Net"))
 
 local Remotes = {}
 

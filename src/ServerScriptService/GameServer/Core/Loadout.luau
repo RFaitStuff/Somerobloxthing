@@ -1,8 +1,8 @@
 --!nonstrict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Weapons = require(Shared:WaitForChild("WeaponDefinitions"))
-local Net = require(Shared:WaitForChild("Net"))
+local Weapons = require(Shared:WaitForChild("Data"):WaitForChild("Combat"):WaitForChild("Weapons"))
+local Net = require(Shared:WaitForChild("Core"):WaitForChild("Net"))
 
 local Inventory = {}
 Inventory.__index = Inventory

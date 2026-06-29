@@ -3,11 +3,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local ServerStorage = game:GetService("ServerStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Config = require(Shared:WaitForChild("Config"))
-local Net = require(Shared:WaitForChild("Net"))
-local StatusTypes = require(Shared:WaitForChild("StatusTypes"))
-local Util = require(Shared:WaitForChild("Util"))
-local StatusData = require(ServerStorage:WaitForChild("GameData"):WaitForChild("Statuses"))
+local Config = require(Shared:WaitForChild("Core"):WaitForChild("Config"))
+local Net = require(Shared:WaitForChild("Core"):WaitForChild("Net"))
+local StatusTypes = require(Shared:WaitForChild("Data"):WaitForChild("Combat"):WaitForChild("Statuses"))
+local Util = require(Shared:WaitForChild("Core"):WaitForChild("Util"))
+local StatusData = require(ServerStorage:WaitForChild("ServerData"):WaitForChild("Combat"):WaitForChild("Statuses"))
 
 local Statuses = {}
 Statuses.__index = Statuses

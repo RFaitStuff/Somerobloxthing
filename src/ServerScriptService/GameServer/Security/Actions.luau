@@ -1,6 +1,6 @@
 --!nonstrict
 -- RateLimiter ------------------------------------------------------------
-local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Config"))
+local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Core"):WaitForChild("Config"))
 
 local RateLimiter = {}
 RateLimiter.__index = RateLimiter
@@ -49,7 +49,7 @@ function CooldownGate:Allow(player, actionName)
 end
 
 -- SanityChecks ------------------------------------------------------------
-local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Config"))
+local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Core"):WaitForChild("Config"))
 
 local Sanity = {}
 Sanity.__index = Sanity

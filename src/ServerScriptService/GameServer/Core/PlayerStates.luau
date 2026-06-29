@@ -30,6 +30,8 @@ function PlayerState:Get(player)
             AbilityCooldowns = {},
             ActiveMission = nil,
             LastMelee = {},
+            MeleeRuntime = {},
+            IsMeleeBlocking = false,
         }
         self.States[player] = state
     end
