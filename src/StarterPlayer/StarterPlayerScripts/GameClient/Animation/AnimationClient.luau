@@ -1030,6 +1030,8 @@ function AnimationClient.new(clientState)
         WeaponRemote = nil,
         WeaponAttachMode = "RightHand",
         HolsterUntil = 0,
+        AnimationsEnabled = true,
+        LastDisabledStop = 0,
     }, AnimationClient)
 end
 
@@ -1038,10 +1040,38 @@ function AnimationClient:BindCharacter(character)
     self.WeaponAttachMode = "RightHand"
     self.HolsterUntil = 0
     self.WeaponRemote = self.WeaponRemote or Net.GetRemoteEvent(Net.RemoteEvents.WeaponRequest)
+    if not self.AnimationsEnabled then
+        self.Tracks:StopAll(0)
+        self.Tracks:ResetProceduralAim()
+    end
+end
+
+function AnimationClient:SetAnimationsEnabled(enabled)
+    self.AnimationsEnabled = enabled == true
+    if not self.AnimationsEnabled then
+        self.Tracks:StopAll(0)
+        self.Tracks:ResetProceduralAim()
+        self.Tracks.CurrentLoopName = "AnimationsDisabled"
+        self.Tracks.CurrentActionName = "None"
+        self.Tracks.CurrentWeaponName = "None"
+        self.LastDisabledStop = os.clock()
+    end
+end
+
+function AnimationClient:ToggleAnimations()
+    self:SetAnimationsEnabled(not self.AnimationsEnabled)
+    return self.AnimationsEnabled
+end
+
+function AnimationClient:AreAnimationsEnabled()
+    return self.AnimationsEnabled == true
 end
 
 function AnimationClient:OnModeChanged(mode)
     self.Params.Mode = mode
+    if not self.AnimationsEnabled then
+        return
+    end
     if mode == "Sliding" then
         self:PlayParkour("SlideStart")
     elseif mode == "WallLatched" then
@@ -1053,14 +1083,17 @@ end
 
 function AnimationClient:OnStatusChanged(statusName)
     self.Params.LastStatus = statusName
+    if not self.AnimationsEnabled then return end
     self.Tracks:PlayStatus(statusName)
 end
 
 function AnimationClient:PlayMelee(animationName)
+    if not self.AnimationsEnabled then return end
     self.Tracks:PlayMelee(animationName)
 end
 
 function AnimationClient:PlayParkour(animationName)
+    if not self.AnimationsEnabled then return end
     if animationName ~= "DoubleJump" and animationName ~= "BulletJump" then
         self.Tracks:StopParkourAction(TRANSITION.QuickActionFade)
     end
@@ -1110,6 +1143,7 @@ function AnimationClient:UpdateWeaponPose(dt, motor)
 end
 
 function AnimationClient:DebugPlayAnimation(alias)
+    if not self.AnimationsEnabled then return end
     if alias == "Idle_Rifle" or alias == "WeaponRelaxed" then alias = "WeaponRelaxed" end
     if alias == "Idle_rifle_aim" or alias == "WeaponAim" then alias = "WeaponAim" end
     if alias == "Sprint(remp)" then alias = "Sprint" end
@@ -1133,6 +1167,7 @@ end
 
 function AnimationClient:GetDebugState()
     local trackState = self.Tracks:GetDebugState()
+    trackState.AnimationsEnabled = self.AnimationsEnabled == true
     trackState.Mode = self.Params.Mode
     trackState.Speed = self.Params.Speed
     trackState.VerticalSpeed = self.Params.VerticalSpeed
@@ -1142,6 +1177,15 @@ function AnimationClient:GetDebugState()
 end
 
 function AnimationClient:Update(dt, motor)
+    if not self.AnimationsEnabled then
+        if os.clock() - (self.LastDisabledStop or 0) > 0.25 then
+            self.Tracks:StopAll(0)
+            self.Tracks:ResetProceduralAim()
+            self.LastDisabledStop = os.clock()
+        end
+        return
+    end
+
     self.Params:UpdateFromMotor(motor)
     if self.Params.IsBlocking then
         self.Tracks:PlayLoop("Block", 0.08)

@@ -188,26 +188,55 @@ function Kinematic:SendAction(actionName, data)
     self.ActionRemote:FireServer(actionName, data)
 end
 
+local function rootSnapshot(root)
+    if not root then
+        return { V = Vector3.zero, P = Vector3.zero, C = CFrame.identity }
+    end
+    return { V = root.AssemblyLinearVelocity, P = root.Position, C = root.CFrame }
+end
+
 function Kinematic:Update(dt)
     if not self.Root or not self.Humanoid or self.Humanoid.Health <= 0 then return end
+
+    self.DebugFrameId = (self.DebugFrameId or 0) + 1
+    self.DebugLastDt = dt
+    self.DebugStep = {
+        Start = rootSnapshot(self.Root),
+        StartVelocity = self.Velocity,
+        StartClock = os.clock(),
+    }
+
     self.LastWallNormalTimer = math.max(0, (self.LastWallNormalTimer or 0) - dt)
     self.WallHopRepeatTimer = math.max(0, (self.WallHopRepeatTimer or 0) - dt)
     self.ForceFacingTimer = math.max(0, (self.ForceFacingTimer or 0) - dt)
     self.GroundProbe:Update()
+    self.DebugStep.AfterGroundProbe = rootSnapshot(self.Root)
     self.WallProbe:Update(dt)
+    self.DebugStep.AfterWallProbe = rootSnapshot(self.Root)
     self.StatusController:Update(dt)
+    self.DebugStep.AfterStatus = rootSnapshot(self.Root)
     self.StateMachine:HandleTransitions(dt)
+    self.DebugStep.AfterState = rootSnapshot(self.Root)
     self.VelocityMotor:Integrate(dt)
+    self.DebugStep.AfterIntegrate = rootSnapshot(self.Root)
+    self.DebugStep.AfterIntegrateControllerVelocity = self.Velocity
     self.SoftCollision:Update(dt)
+    self.DebugStep.AfterSoftCollision = rootSnapshot(self.Root)
+    self.DebugStep.AfterSoftCollisionControllerVelocity = self.Velocity
 
     -- Anything that writes CFrame or humanoid state must happen before the final velocity write.
     -- Otherwise Roblox can partially discard the AssemblyLinearVelocity commit during the same
     -- simulation step, which shows up as commit/vAsm mismatch and forward rubber-band stutter.
     self.Orientation:Update(dt)
+    self.DebugStep.AfterOrientation = rootSnapshot(self.Root)
     self.HumanoidAdapter:Update(dt)
+    self.DebugStep.AfterHumanoid = rootSnapshot(self.Root)
     self.VelocityMotor:CommitVelocity()
+    self.DebugStep.AfterCommit = rootSnapshot(self.Root)
 
     if self.Animation then self.Animation:Update(dt, self) end
+    self.DebugStep.AfterAnimation = rootSnapshot(self.Root)
+    self.DebugStep.EndClock = os.clock()
 end
 
 return Kinematic

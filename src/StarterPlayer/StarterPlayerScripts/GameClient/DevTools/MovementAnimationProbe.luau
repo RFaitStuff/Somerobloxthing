@@ -131,7 +131,15 @@ function MovementAnimationProbe:Start()
 
     self.InputConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if gameProcessed then return end
-        if input.KeyCode == Enum.KeyCode.F8 then
+        if input.KeyCode == Enum.KeyCode.F7 then
+            if self.Animation and self.Animation.ToggleAnimations then
+                local enabled = self.Animation:ToggleAnimations()
+                self:Warn("PLAYER ANIMATIONS " .. (enabled and "ENABLED" or "DISABLED") .. " via F7")
+                self:DumpRecent("animation toggle")
+            else
+                self:Warn("Animation toggle unavailable")
+            end
+        elseif input.KeyCode == Enum.KeyCode.F8 then
             self.Enabled = not self.Enabled
             self:Print("Probe " .. (self.Enabled and "enabled" or "disabled"))
             if self.Gui then self.Gui.Enabled = self.Enabled end
@@ -155,7 +163,7 @@ function MovementAnimationProbe:Start()
     connectStage("PostSim", safeCall(nil, function() return RunService.PostSimulation end))
     connectStage("Heartbeat", RunService.Heartbeat)
 
-    self:Print("Movement/animation probe enabled. F8 toggles. F9 dumps recent. F10 toggles verbose PreSim/PostSim/Heartbeat stage logging.")
+    self:Print("Movement/animation probe enabled. F7 toggles player animations. F8 toggles probe. F9 dumps recent. F10 toggles verbose PreSim/PostSim/Heartbeat stage logging.")
 end
 
 function MovementAnimationProbe:Destroy()
@@ -270,6 +278,54 @@ function MovementAnimationProbe:BuildAudit(root, humanoid)
 
     self.LastAudit = audit
     return audit
+end
+
+
+local function snapshotField(step, name, field)
+    if typeof(step) ~= "table" or typeof(step[name]) ~= "table" then
+        return field == "C" and CFrame.identity or Vector3.zero
+    end
+    return step[name][field] or (field == "C" and CFrame.identity or Vector3.zero)
+end
+
+local function deltaMag(a, b)
+    if typeof(a) ~= "Vector3" or typeof(b) ~= "Vector3" then return 0 end
+    return (a - b).Magnitude
+end
+
+local function cframePosDelta(a, b)
+    if typeof(a) ~= "CFrame" or typeof(b) ~= "CFrame" then return 0 end
+    return (a.Position - b.Position).Magnitude
+end
+
+local function stepVecLine(step)
+    if typeof(step) ~= "table" then return "step=none" end
+    local startV = snapshotField(step, "Start", "V")
+    local afterIntV = snapshotField(step, "AfterIntegrate", "V")
+    local afterSoftV = snapshotField(step, "AfterSoftCollision", "V")
+    local afterOrientV = snapshotField(step, "AfterOrientation", "V")
+    local afterHumV = snapshotField(step, "AfterHumanoid", "V")
+    local afterCommitV = snapshotField(step, "AfterCommit", "V")
+    local afterAnimV = snapshotField(step, "AfterAnimation", "V")
+    return string.format(
+        "stepV start=(%s) integrate=(%s) soft=(%s) orient=(%s) hum=(%s) commit=(%s) anim=(%s) dOrient=%s dHum=%s dAnim=%s",
+        vecShort(startV), vecShort(afterIntV), vecShort(afterSoftV), vecShort(afterOrientV), vecShort(afterHumV), vecShort(afterCommitV), vecShort(afterAnimV),
+        fmt(deltaMag(afterSoftV, afterOrientV), 3), fmt(deltaMag(afterOrientV, afterHumV), 3), fmt(deltaMag(afterCommitV, afterAnimV), 3)
+    )
+end
+
+local function stepPosLine(step)
+    if typeof(step) ~= "table" then return "stepPos=none" end
+    local startP = snapshotField(step, "Start", "P")
+    local afterOrientP = snapshotField(step, "AfterOrientation", "P")
+    local afterHumP = snapshotField(step, "AfterHumanoid", "P")
+    local afterCommitP = snapshotField(step, "AfterCommit", "P")
+    local afterAnimP = snapshotField(step, "AfterAnimation", "P")
+    return string.format(
+        "stepP start=(%s) orient=(%s) hum=(%s) commit=(%s) anim=(%s) dOrient=%s dHum=%s dAnim=%s",
+        vecShort(startP), vecShort(afterOrientP), vecShort(afterHumP), vecShort(afterCommitP), vecShort(afterAnimP),
+        fmt(deltaMag(startP, afterOrientP), 4), fmt(deltaMag(afterOrientP, afterHumP), 4), fmt(deltaMag(afterCommitP, afterAnimP), 4)
+    )
 end
 
 function MovementAnimationProbe:BuildSample(dt, stage)
@@ -388,6 +444,12 @@ function MovementAnimationProbe:BuildSample(dt, stage)
         AnimationWeapon = animDebug.CurrentWeapon or (animation and animation.Tracks and animation.Tracks.CurrentWeaponName) or "None",
         AimGlideBlend = animDebug.AimGlideBlend or "",
         TrackSummary = getTrackNames(animation),
+        AnimationsEnabled = animDebug.AnimationsEnabled ~= false,
+        DebugFrameId = motor and motor.DebugFrameId or -1,
+        DebugLastDt = motor and motor.DebugLastDt or 0,
+        DebugStepLine = stepVecLine(motor and motor.DebugStep),
+        DebugStepPosLine = stepPosLine(motor and motor.DebugStep),
+        DebugUpdateMs = motor and motor.DebugStep and motor.DebugStep.EndClock and motor.DebugStep.StartClock and ((motor.DebugStep.EndClock - motor.DebugStep.StartClock) * 1000) or 0,
     }
 end
 
@@ -405,8 +467,8 @@ end
 
 function MovementAnimationProbe:SampleLine(s)
     return string.format(
-        "%s mode=%s grounded=%s hum=%s floor=%s y=%s dy=%s vCtl=(%s) vAsm=(%s) commit=(%s) mismatch=%s commitMis=%s posErr=%s move=(%s) raw=(%s) wall=%s/%s aim=%s mem=%s dist=%s inst=%s block=%s:%s into=%s input=%s soft=%s anim=%s/%s/%s",
-        tostring(s.Stage), tostring(s.Mode), tostring(s.Grounded), tostring(s.HumanoidState), tostring(s.Floor),
+        "%s f=%s animOn=%s updMs=%s mode=%s grounded=%s hum=%s floor=%s y=%s dy=%s vCtl=(%s) vAsm=(%s) commit=(%s) mismatch=%s commitMis=%s posErr=%s move=(%s) raw=(%s) wall=%s/%s aim=%s mem=%s dist=%s inst=%s block=%s:%s into=%s input=%s soft=%s anim=%s/%s/%s",
+        tostring(s.Stage), tostring(s.DebugFrameId), tostring(s.AnimationsEnabled), fmt(s.DebugUpdateMs, 3), tostring(s.Mode), tostring(s.Grounded), tostring(s.HumanoidState), tostring(s.Floor),
         fmt(s.RootY, 3), fmt(s.RootYDelta, 4),
         vecShort(s.ControllerVelocity), vecShort(s.AssemblyVelocity), vecShort(s.DebugCommitVelocity),
         fmt(s.VelMismatch, 2), fmt(s.CommitMismatch, 2), fmt(s.PositionVelocityError, 3),
@@ -437,6 +499,8 @@ function MovementAnimationProbe:DumpRecent(reason)
     local hb = self.StageSamples.Heartbeat or self.Samples[#self.Samples]
     if hb then
         self:Print("details: " .. self:DetailLine(hb))
+        self:Print(tostring(hb.DebugStepLine))
+        self:Print(tostring(hb.DebugStepPosLine))
     end
     self:Print("activeTracks: " .. getTrackNames(self.Animation))
 end
@@ -444,9 +508,11 @@ end
 function MovementAnimationProbe:UpdateGui(sample)
     if not self.Label then return end
     self.Label.Text = table.concat({
-        "Movement/Animation Probe  |  F8 toggle  F9 dump  F10 verbose stages",
+        "Movement/Animation Probe  |  F7 animations  F8 probe  F9 dump  F10 verbose",
         self:SampleLine(sample),
         self:DetailLine(sample),
+        tostring(sample.DebugStepLine),
+        tostring(sample.DebugStepPosLine),
         "tracks=" .. tostring(sample.TrackSummary),
         "maxDY=" .. fmt(self.MaxYDelta, 4) .. " maxVelMis=" .. fmt(self.MaxVelMismatch, 2) .. " maxCommitMis=" .. fmt(self.MaxCommitMismatch, 2) .. " maxPosErr=" .. fmt(self.MaxPositionError, 3),
     }, "\n")
@@ -492,6 +558,8 @@ function MovementAnimationProbe:Update(dt, stage)
         if posSpike then table.insert(tags, "POSITION_ERROR") end
         self:Warn(table.concat(tags, "+") .. " " .. self:SampleLine(sample))
         self:Warn("details " .. self:DetailLine(sample))
+        self:Warn(tostring(sample.DebugStepLine))
+        self:Warn(tostring(sample.DebugStepPosLine))
     elseif shouldPrintSummary then
         self.LastPrint = now
         self:Print(self:SampleLine(sample))

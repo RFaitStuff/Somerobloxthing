@@ -25,6 +25,7 @@ local WeaponOffsetDebugger = require(Root:WaitForChild("DevTools"):WaitForChild(
 local HubConsoleClient = require(Root:WaitForChild("UI"):WaitForChild("HubConsoleClient"))
 local GameplayHudClient = require(Root:WaitForChild("UI"):WaitForChild("GameplayHudClient"))
 local EquipmentClient = require(Root:WaitForChild("UI"):WaitForChild("EquipmentClient"))
+local MovementAnimationProbe = require(Root:WaitForChild("DevTools"):WaitForChild("MovementAnimationProbe"))
 
 local player = Players.LocalPlayer
 local state = ClientState.new()
@@ -45,6 +46,7 @@ local weaponOffsetDebugger = WeaponOffsetDebugger.new(state, animation)
 local hubConsole = HubConsoleClient.new(state, input)
 local gameplayHud = GameplayHudClient.new(state)
 local equipmentUi = EquipmentClient.new(state, input)
+local movementProbe = MovementAnimationProbe.new(state, input, camera, motor, animation)
 
 local function bind(character)
     Debug.Log(Debug.Channels.Startup, "Binding character %s", character:GetFullName())
@@ -69,6 +71,7 @@ Debug.Try(Debug.Channels.Startup, "WeaponOffsetDebugger:Start", function() weapo
 Debug.Try(Debug.Channels.Startup, "HubConsoleClient:Start", function() hubConsole:Start() end)
 Debug.Try(Debug.Channels.Startup, "GameplayHudClient:Start", function() gameplayHud:Start() end)
 Debug.Try(Debug.Channels.Startup, "EquipmentClient:Start", function() equipmentUi:Start() end)
+Debug.Try(Debug.Channels.Startup, "MovementAnimationProbe:Start", function() movementProbe:Start() end)
 
 Net.GetRemoteEvent(Net.RemoteEvents.StateUpdate).OnClientEvent:Connect(function(payload)
     Debug.Try(Debug.Channels.Network, "StateUpdate", function()
