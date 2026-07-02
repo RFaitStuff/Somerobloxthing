@@ -27,6 +27,7 @@ local Collision = require(Core:WaitForChild("Collision"))
 local Loadout = require(Core:WaitForChild("Loadout"))
 local SettingsData = require(Core:WaitForChild("SettingsData"))
 local ValidationAudit = require(Core:WaitForChild("ValidationAudit"))
+local ContentValidator = require(Core:WaitForChild("ContentValidator"))
 
 local Melee = require(Combat:WaitForChild("Melee"))
 local Statuses = require(Combat:WaitForChild("Statuses"))
@@ -41,14 +42,29 @@ local ProfileService = require(Progression:WaitForChild("ProfileService"))
 local FrameService = require(Progression:WaitForChild("FrameService"))
 local ResourceService = require(Progression:WaitForChild("ResourceService"))
 local RewardService = require(Progression:WaitForChild("RewardService"))
+local InventoryService = require(Progression:WaitForChild("InventoryService"))
+local CraftingService = require(Progression:WaitForChild("CraftingService"))
+local MasteryService = require(Progression:WaitForChild("MasteryService"))
 
 local EnemyService = require(EnemiesFolder:WaitForChild("EnemyService"))
 local MissionService = require(MissionsFolder:WaitForChild("MissionService"))
 local WorldService = require(WorldFolder:WaitForChild("WorldService"))
+local StoryService = require(WorldFolder:WaitForChild("StoryService"))
+local QuestService = require(WorldFolder:WaitForChild("QuestService"))
+local RoomService = require(WorldFolder:WaitForChild("RoomService"))
+local HubService = require(WorldFolder:WaitForChild("HubService"))
+local MarketplaceService = require(WorldFolder:WaitForChild("MarketplaceService"))
+local NpcService = require(WorldFolder:WaitForChild("NpcService"))
+local ClanService = require(WorldFolder:WaitForChild("ClanService"))
+local TradeService = require(WorldFolder:WaitForChild("TradeService"))
+local ResourceNodeService = require(WorldFolder:WaitForChild("ResourceNodeService"))
+local TrainingRangeService = require(WorldFolder:WaitForChild("TrainingRangeService"))
+local SocialChatService = require(WorldFolder:WaitForChild("SocialChatService"))
 
 Remotes.Ensure()
 ValidationAudit.Init()
 AnimationRegistry.Ensure()
+ContentValidator.WarnIssues(ContentValidator.Run())
 
 local states = PlayerStates.new()
 local collision = Collision.new()
@@ -62,15 +78,38 @@ local profiles = ProfileService.new(states)
 local frames = FrameService.new(states, profiles)
 local resources = ResourceService.new(states, frames)
 local rewards = RewardService.new(states, profiles, frames)
+local inventoryService = InventoryService.new(profiles, frames)
+local craftingService = CraftingService.new(profiles)
+local masteryService = MasteryService.new(profiles)
 local combatPipeline = CombatService.new(states, status, resources, rewards)
 local enemies = EnemyService.new(states, combatPipeline, rewards)
 local abilities = AbilityService.new(states, profiles, resources, combatPipeline)
 local weapons = WeaponService.new(states, profiles, combatPipeline)
-local missions = MissionService.new(states, enemies, rewards)
-local world = WorldService.new(states, missions)
+local missions = MissionService.new(states, enemies, rewards, profiles)
+local world = WorldService.new(states, missions, profiles)
+local story = StoryService.new(states, profiles, world)
+local quests = QuestService.new(profiles, world)
+local rooms = RoomService.new(profiles, states)
+local hub = HubService.new(states, world, rooms)
+local marketplace = MarketplaceService.new(profiles)
+local npcs = NpcService.new(states, profiles, world, hub, rooms, quests)
+local clans = ClanService.new(profiles)
+local trades = TradeService.new(profiles)
+local resourceNodes = ResourceNodeService.new(states, profiles)
+local trainingRange = TrainingRangeService.new(states)
+local socialChat = SocialChatService.new(states, clans)
 
+profiles.StoryReplicator = function(player)
+    story:Replicate(player)
+end
 status:SetCombat(combatPipeline)
 enemies:SetMissionService(missions)
+missions.QuestTracker = quests
+missions.BountyTracker = npcs
+world.QuestTracker = quests
+world.BountyTracker = npcs
+resourceNodes.Quests = quests
+resourceNodes.Bounties = npcs
 
 local function startService(label, callback)
     Debug.Try(Debug.Channels.Startup, label, callback)
@@ -89,11 +128,25 @@ startService("SettingsData:Start", function() settingsData:Start() end)
 startService("ProfileService:Start", function() profiles:Start() end)
 startService("ResourceService:Start", function() resources:Start() end)
 startService("RewardService:Start", function() rewards:Start() end)
+startService("InventoryService:Start", function() inventoryService:Start() end)
+startService("CraftingService:Start", function() craftingService:Start() end)
+startService("MasteryService:Start", function() masteryService:Start() end)
 startService("EnemyService:Start", function() enemies:Start() end)
 startService("AbilityService:Start", function() abilities:Start() end)
 startService("WeaponService:Start", function() weapons:Start() end)
 startService("MissionService:Start", function() missions:Start() end)
 startService("WorldService:Start", function() world:Start() end)
+startService("StoryService:Start", function() story:Start() end)
+startService("QuestService:Start", function() quests:Start() end)
+startService("RoomService:Start", function() rooms:Start() end)
+startService("HubService:Start", function() hub:Start() end)
+startService("MarketplaceService:Start", function() marketplace:Start() end)
+startService("NpcService:Start", function() npcs:Start() end)
+startService("ClanService:Start", function() clans:Start() end)
+startService("TradeService:Start", function() trades:Start() end)
+startService("ResourceNodeService:Start", function() resourceNodes:Start() end)
+startService("TrainingRangeService:Start", function() trainingRange:Start() end)
+startService("SocialChatService:Start", function() socialChat:Start() end)
 
 Net.GetRemoteEvent(Net.RemoteEvents.ActionRequest).OnServerEvent:Connect(function(player, actionName, payload)
     Debug.Try(Debug.Channels.Validation, "ActionRequest", function()
@@ -110,6 +163,40 @@ local function setupPlayer(player)
     frames:Refresh(player)
     resources:Ensure(player)
     profiles:Replicate(player)
+    world:Replicate(player)
+    story:Replicate(player)
+    quests:Replicate(player)
+    local storyProgress = profiles:GetStoryProgress(player)
+    if storyProgress.UnlockedLocations and storyProgress.UnlockedLocations.Hub then
+        hub:ApplyHubRules(player)
+    else
+        local state = states:Get(player)
+        state.LocationId = "Moon"
+        state.SafeZone = true
+        state.TrainingRange = false
+        Net.GetRemoteEvent(Net.RemoteEvents.HubUpdate):FireClient(player, {
+            Type = "StarterLocation",
+            LocationId = "Moon",
+            DisplayName = "Moonveil Ruins",
+            ActivePanel = "Story",
+        })
+    end
+    inventoryService:Replicate(player)
+    craftingService:Replicate(player)
+    masteryService:Replicate(player)
+    rooms:Replicate(player)
+    marketplace:Replicate(player)
+    clans:SyncPlayer(player)
+    trades:Replicate(player)
+    trainingRange:Replicate(player)
+    socialChat:ReplicateChannels(player)
+
+    local ok, joinData = pcall(function()
+        return player:GetJoinData()
+    end)
+    local teleportData = ok and joinData and joinData.TeleportData
+    local pendingMissionContext = typeof(teleportData) == "table" and teleportData.MissionId and teleportData or nil
+    local consumedTeleportMission = false
 
     local function setupCharacter(character)
         Debug.Try(Debug.Channels.Startup, "CharacterAdded", function()
@@ -123,6 +210,17 @@ local function setupPlayer(player)
             resources:Ensure(player)
             resources:Replicate(player)
             weapons:ReplicateEquipped(player)
+            world:Replicate(player)
+            if pendingMissionContext and not consumedTeleportMission then
+                consumedTeleportMission = true
+                missions:StartMission(player, pendingMissionContext.MissionId, {
+                    LocationId = pendingMissionContext.LocationId,
+                    NodeId = pendingMissionContext.NodeId,
+                    SessionId = pendingMissionContext.SessionId,
+                    InstanceMode = "ReservedServer",
+                })
+                world:Replicate(player)
+            end
         end)
     end
 
@@ -276,5 +374,10 @@ for _, player in ipairs(Players:GetPlayers()) do
     task.spawn(setupPlayer, player)
 end
 Players.PlayerRemoving:Connect(function(player)
-    profiles:Save(player)
+    trades:CancelPlayerListings(player)
+    profiles:Save(player, true)
+end)
+
+game:BindToClose(function()
+    profiles:Shutdown()
 end)

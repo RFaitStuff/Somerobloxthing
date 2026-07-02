@@ -96,9 +96,12 @@ function GameplayCombatClient:Update()
     if self.Input:ConsumePressed("Ability3") then self:CastSlot(3) end
     if self.Input:ConsumePressed("Ability4") then self:CastSlot(4) end
     if self.Input:ConsumePressed("SwitchWeapon") then self:SwitchGun() end
-    if self.Input:IsHeld("Fire") then
-        local weaponId = self.State.EquippedWeaponId
-        local weapon = Weapons.Get(weaponId)
+    local weaponId = self.State.EquippedWeaponId
+    local weapon = Weapons.Get(weaponId)
+    local fireMode = weapon and weapon.FireMode or "Auto"
+    local pressed = self.Input:ConsumePressed("Fire")
+    local wantsFire = pressed or ((fireMode == "Auto" or fireMode == "Beam") and self.Input:IsHeld("Fire"))
+    if wantsFire then
         local now = os.clock()
         if weapon and now - self.LastFire < 1 / math.max(weapon.FireRate or 1, 0.1) then
             return
@@ -107,9 +110,9 @@ function GameplayCombatClient:Update()
         -- Send raw camera aim. Server applies weapon spread so damage is not client-authored.
         local direction = self:GetAimDirection()
         if self.Camera and self.Camera.AddRecoil then
-            self.Camera:AddRecoil(weapon.Recoil or 0)
+            self.Camera:AddRecoil((weapon and weapon.Recoil) or 0)
         end
-        self.WeaponRemote:FireServer({ Action = "Fire", Direction = direction, Origin = self:GetMuzzleOrigin(direction) })
+        self.WeaponRemote:FireServer({ Action = "Fire", Direction = direction, Origin = self:GetMuzzleOrigin(direction), Pressed = pressed })
     end
 end
 

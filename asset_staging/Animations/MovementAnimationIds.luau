@@ -1,6 +1,6 @@
 --!nonstrict
--- Temporary fallback/reference IDs only. Runtime uses ReplicatedStorage.Animations when present.
--- Paste vetted animation ids here while replacing placeholders in Studio.
+-- Reference IDs only. This folder is intentionally not mapped by Rojo.
+-- Paste vetted animation ids here while replacing placeholders in Studio/data modules.
 
 return {
     Idle = {

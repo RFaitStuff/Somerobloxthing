@@ -12,6 +12,7 @@ local Melee = require(Shared:WaitForChild("Data"):WaitForChild("Combat"):WaitFor
 local Enemies = require(Shared:WaitForChild("Data"):WaitForChild("Enemies"):WaitForChild("Enemies"))
 local Missions = require(Shared:WaitForChild("Data"):WaitForChild("Missions"):WaitForChild("Missions"))
 local Mods = require(Shared:WaitForChild("Data"):WaitForChild("Progression"):WaitForChild("Mods"))
+local Locations = require(Shared:WaitForChild("Data"):WaitForChild("World"):WaitForChild("Locations"))
 
 local TestUI = {}
 TestUI.__index = TestUI
@@ -31,6 +32,7 @@ function TestUI.new(state, input, camera)
         WeaponRemote = nil,
         EnemyRemote = nil,
         MissionRemote = nil,
+        WorldRemote = nil,
         TuningRemote = nil,
         SelectedFrameId = "EmberVanguard",
         SelectedWeaponId = "Rifle",
@@ -54,6 +56,20 @@ function TestUI:MakeButton(parent, text, callback)
     button.Parent = parent
     button.MouseButton1Click:Connect(callback)
     return button
+end
+
+function TestUI:AddTextLine(parent, text)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -8, 0, 22)
+    label.BackgroundTransparency = 1
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextColor3 = Color3.fromRGB(205, 214, 226)
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 12
+    label.Text = text
+    label.TextTruncate = Enum.TextTruncate.AtEnd
+    label.Parent = parent
+    return label
 end
 
 function TestUI:Header(parent, text)
@@ -85,6 +101,7 @@ function TestUI:Start()
     self.WeaponRemote = Net.GetRemoteEvent(Net.RemoteEvents.WeaponRequest)
     self.EnemyRemote = Net.GetRemoteEvent(Net.RemoteEvents.EnemyRequest)
     self.MissionRemote = Net.GetRemoteEvent(Net.RemoteEvents.MissionRequest)
+    self.WorldRemote = Net.GetRemoteEvent(Net.RemoteEvents.WorldRequest)
     self.TuningRemote = Net.GetRemoteEvent(Net.RemoteEvents.TuningRequest)
     self:BuildGui()
 
@@ -106,6 +123,10 @@ function TestUI:Start()
     end))
     table.insert(self.Connections, Net.GetRemoteEvent(Net.RemoteEvents.MissionUpdate).OnClientEvent:Connect(function(payload)
         self.State:ApplyMission(payload)
+        self:Refresh()
+    end))
+    table.insert(self.Connections, Net.GetRemoteEvent(Net.RemoteEvents.WorldUpdate).OnClientEvent:Connect(function(payload)
+        self.State:ApplyWorld(payload)
         self:Refresh()
     end))
     table.insert(self.Connections, Net.GetRemoteEvent(Net.RemoteEvents.WeaponUpdate).OnClientEvent:Connect(function(payload)
@@ -132,6 +153,7 @@ function TestUI:Start()
     end))
 
     self.ProfileRequestRemote:FireServer({ Action = "RequestSnapshot" })
+    self.WorldRemote:FireServer({ Action = "RequestLocations" })
 end
 
 function TestUI:BuildGui()
@@ -317,13 +339,14 @@ function TestUI:RefreshSummary()
     local frameState = self:GetSelectedFrameState() or {}
     local frameDef = profile and Frames.Get(profile.SelectedFrameId)
     local mission = self.State.Mission
+    local matchmaking = self.State.Matchmaking
     local weaponId = profile and profile.Equipped.ActiveWeapon or "None"
     local weaponRuntime = self.State.WeaponRuntime[weaponId] or {}
     local weaponState = profile and profile.Weapons and profile.Weapons[weaponId] or {}
     local materials = profile and profile.Inventory and profile.Inventory.Materials or {}
     local cooldownCount = 0
     local now = os.clock()
-    for _, runtime in pairs(self.State.AbilityRuntime) do
+    for _, runtime in pairs((self.State.AbilityRuntime and self.State.AbilityRuntime.Cooldowns) or {}) do
         if (runtime.CooldownEnds or 0) > now then cooldownCount += 1 end
     end
     self.Summary.Text = table.concat({
@@ -332,6 +355,7 @@ function TestUI:RefreshSummary()
         string.format("Health %.0f/%.0f | Shield %.0f/%.0f | Mana %.0f/%.0f", res.Health or 0, stats.Health or 0, res.Shield or 0, stats.Shield or 0, res.Mana or 0, stats.Mana or 0),
         string.format("Weapon: %s L%s XP %s Ammo %s/%s | Cooldowns: %d", weaponId, weaponState.Level or "-", weaponState.XP or "-", weaponRuntime.Ammo or "-", weaponRuntime.Magazine or "-", cooldownCount),
         string.format("Mission: %s %s/%s", mission and mission.DisplayName or "None", mission and mission.Progress or 0, mission and mission.Target or 0),
+        string.format("Power: %s | Queue: %s %s", tostring(self.State.Power or 0), matchmaking and matchmaking.Status or "None", matchmaking and (matchmaking.NodeName or matchmaking.NodeId or "") or ""),
         string.format("Materials: %s", self:FormatMap(materials, "None")),
         string.format("Last reward: %s", self.State.LastReward and self.State.LastReward.Type or "None"),
         string.format("Last reject: %s", self.State.Validation and (tostring(self.State.Validation.System) .. "/" .. tostring(self.State.Validation.Reason) .. " x" .. tostring(self.State.Validation.Count or 1)) or "None"),
@@ -414,13 +438,21 @@ function TestUI:Refresh()
                 end
             end
         end
+        local events = (self.State.AbilityRuntime and self.State.AbilityRuntime.Events) or {}
+        if #events > 0 then
+            self:AddTextLine(self.Body, "Recent Ability Events")
+            for index = math.max(1, #events - 5), #events do
+                local event = events[index]
+                self:AddTextLine(self.Body, string.format("%s %s targets=%s tick=%s/%s", tostring(event.AbilityId), tostring(event.Type), tostring(event.TargetCount or "-"), tostring(event.Tick or "-"), tostring(event.Ticks or "-")))
+            end
+        end
     end
 
     if self:IsOpen("Weapons") then
         for weaponId, weapon in pairs(Weapons.ById) do
             if weapon.Kind == "Ranged" then
-                self:MakeButton(self.Body, "Equip " .. weapon.Name, function()
-                    self.WeaponRemote:FireServer({ Action = "Equip", Slot = "Primary", WeaponId = weaponId })
+                self:MakeButton(self.Body, "Equip Active " .. weapon.Name, function()
+                    self.WeaponRemote:FireServer({ Action = "Equip", Slot = "Active", WeaponId = weaponId })
                 end)
             elseif weapon.Kind == "Melee" then
                 self:MakeButton(self.Body, "Equip Melee " .. weapon.Name, function()
@@ -455,6 +487,33 @@ function TestUI:Refresh()
         self:MakeButton(self.Body, "Clear Enemies", function()
             self.EnemyRemote:FireServer({ Action = "Clear" })
         end)
+    end
+
+    if self:IsOpen("World Nodes") then
+        self:MakeButton(self.Body, "Refresh World State", function()
+            self.WorldRemote:FireServer({ Action = "RequestLocations" })
+        end)
+        self:MakeButton(self.Body, "Cancel Matchmaking", function()
+            self.WorldRemote:FireServer({ Action = "CancelMatchmaking" })
+        end)
+        for locationId, location in pairs(Locations.ById) do
+            for _, node in ipairs(location.Nodes or {}) do
+                local label = string.format("%s / %s [%s P%s]", location.DisplayName or locationId, node.DisplayName or node.Id, node.NodeType or "Node", tostring(node.RecommendedPower or 0))
+                self:MakeButton(self.Body, "Solo " .. label, function()
+                    self.WorldRemote:FireServer({ Action = "StartSolo", LocationId = locationId, NodeId = node.Id })
+                end)
+                if node.Matchmaking ~= "Solo" and node.NodeType ~= "PublicEvent" then
+                    self:MakeButton(self.Body, "Queue " .. label, function()
+                        self.WorldRemote:FireServer({ Action = "QueueNode", LocationId = locationId, NodeId = node.Id })
+                    end)
+                end
+                if node.NodeType == "PublicEvent" then
+                    self:MakeButton(self.Body, "Start Public " .. label, function()
+                        self.WorldRemote:FireServer({ Action = "ActivateNode", LocationId = locationId, NodeId = node.Id })
+                    end)
+                end
+            end
+        end
     end
 
     if self:IsOpen("Missions") then

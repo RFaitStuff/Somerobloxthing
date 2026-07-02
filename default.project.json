@@ -3,16 +3,16 @@
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
+      "$ignoreUnknownInstances": true,
       "Shared": {
+        "$ignoreUnknownInstances": true,
         "$path": "src/ReplicatedStorage/Shared"
       }
     },
     "ServerStorage": {
+      "$ignoreUnknownInstances": true,
       "ServerData": {
         "$path": "src/ServerStorage/ServerData"
-      },
-      "ServerAssets": {
-        "$path": "src/ServerStorage/ServerAssets"
       }
     },
     "StarterPlayer": {

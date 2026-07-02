@@ -96,19 +96,22 @@ function EnemyService:AddPlaceholderGun(model, root, def)
     weld.Parent = gun
 end
 
-function EnemyService:Spawn(player, enemyIdOrRole, offset, worldCFrame)
+function EnemyService:Spawn(player, enemyIdOrRole, offset, worldCFrame, level)
     local def = self:ResolveDefinition(enemyIdOrRole)
+    level = math.max(1, math.floor(tonumber(level) or def.Level or 1))
+    local levelScale = 1 + math.max(0, level - 1) * 0.035
     local model = Instance.new("Model")
     model.Name = def.Name
     model:SetAttribute("EnemyId", def.Id)
     model:SetAttribute("EnemyRole", def.Role)
+    model:SetAttribute("EnemyLevel", level)
     model:SetAttribute("AIType", def.AIType or "Melee")
     model:SetAttribute("Faction", def.Faction)
-    model:SetAttribute("Health", def.Health)
-    model:SetAttribute("MaxHealth", def.Health)
+    model:SetAttribute("Health", math.floor((def.Health or 100) * levelScale))
+    model:SetAttribute("MaxHealth", math.floor((def.Health or 100) * levelScale))
     model:SetAttribute("Shield", def.Shield or 0)
     model:SetAttribute("MaxShield", def.Shield or 0)
-    model:SetAttribute("Damage", def.Damage or 10)
+    model:SetAttribute("Damage", math.floor((def.Damage or 10) * (1 + math.max(0, level - 1) * 0.02)))
     model:SetAttribute("AttackRange", def.Range or 8)
     model:SetAttribute("Accuracy", def.Accuracy or 0.7)
     model:SetAttribute("BurstCount", def.BurstCount or 1)
@@ -136,8 +139,8 @@ function EnemyService:Spawn(player, enemyIdOrRole, offset, worldCFrame)
     self:AddPlaceholderGun(model, root, def)
 
     local humanoid = Instance.new("Humanoid")
-    humanoid.MaxHealth = def.Health
-    humanoid.Health = def.Health
+    humanoid.MaxHealth = model:GetAttribute("MaxHealth")
+    humanoid.Health = humanoid.MaxHealth
     humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
     humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
     humanoid.WalkSpeed = def.MoveSpeed or 10
@@ -154,9 +157,9 @@ function EnemyService:Spawn(player, enemyIdOrRole, offset, worldCFrame)
         local source = humanoid:GetAttribute("LastDamageSource") or "Unknown"
         local attacker = userId and game:GetService("Players"):GetPlayerByUserId(userId)
         if attacker and self.Rewards then
-            self.Rewards:AwardEnemyKill(attacker, def.Role, def.Id, source, def.Faction)
+            self.Rewards:AwardEnemyKill(attacker, def.Role, def.Id, source, def.Faction, level)
             if self.Missions then
-                self.Missions:RecordEnemyKill(attacker, def.Role, def.Id)
+                self.Missions:RecordEnemyKill(attacker, def.Role, def.Id, def.Faction)
             end
         end
         task.delay(2, function() if model then model:Destroy() end end)
@@ -170,9 +173,9 @@ function EnemyService:SpawnAtCFrame(enemyIdOrRole, cframe)
     return self:Spawn(nil, enemyIdOrRole, Vector3.zero, cframe)
 end
 
-function EnemyService:SpawnWave(player, role, count)
+function EnemyService:SpawnWave(player, role, count, level)
     for index = 1, count or 5 do
-        self:Spawn(player, role, Vector3.new((index - 3) * 6, 0, -28 - index * 2))
+        self:Spawn(player, role, Vector3.new((index - 3) * 6, 0, -28 - index * 2), nil, level)
     end
 end
 

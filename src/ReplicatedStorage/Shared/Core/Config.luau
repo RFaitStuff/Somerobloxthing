@@ -109,6 +109,9 @@ return {
     WallContactDotMin = -0.12,
     WallHopLookDotMin = 0.06,
     WallHopMoveIntoWallDotMin = 0.08,
+    WallHopMinContactTime = 0.035,
+    WallHopHeldIntentMin = 0.28,
+    WallHopAimUpBonus = 16,
     WallHopHeldRepeatInterval = 0.18,
     WallHopChainEnabled = true,
     WallRecontactAssistTime = 0.38,
@@ -184,6 +187,9 @@ return {
     Networking = {
     RemotesFolderName = "Remotes",
     SettingsDataStoreName = "MovementControllerSettings_v1",
+    ProfileDataStoreName = "SomerobloxthingProfiles_v1",
+    ProfileAutosaveSeconds = 90,
+    ProfileSessionLockSeconds = 180,
 },
 
     Collision = {

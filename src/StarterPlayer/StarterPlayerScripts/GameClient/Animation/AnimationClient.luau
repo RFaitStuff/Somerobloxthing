@@ -1,4 +1,5 @@
 --!nonstrict
+local KeyframeSequenceProvider = game:GetService("KeyframeSequenceProvider")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -6,12 +7,14 @@ local AnimationRegistry = require(Shared:WaitForChild("Core"):WaitForChild("Anim
 local Debug = require(Shared:WaitForChild("Core"):WaitForChild("Debug"))
 local TempAnimationIds = require(Shared:WaitForChild("Core"):WaitForChild("TempAnimationIds"))
 local Util = require(Shared:WaitForChild("Core"):WaitForChild("Util"))
+local Net = require(Shared:WaitForChild("Core"):WaitForChild("Net"))
+local Weapons = require(Shared:WaitForChild("Data"):WaitForChild("Combat"):WaitForChild("Weapons"))
 local StatusTypes = require(Shared:WaitForChild("Data"):WaitForChild("Combat"):WaitForChild("Statuses"))
 
 local SOURCE_NAMES = {
     Idle = "Idle",
     Walk = "Walk",
-    Sprint = "Sprint",
+    Sprint = "Sprint(remp)",
     Crouch = "Crouch",
     CrouchWalk = "CrouchWalk",
     Block = "Block",
@@ -45,6 +48,8 @@ local SOURCE_NAMES = {
     AirDodgeBackward = "AirDodgeBackward",
     AirDodgeLeft = "AirDodgeLeft",
     AirDodgeRight = "AirDodgeRight",
+    WeaponRelaxed = "Idle_Rifle",
+    WeaponAim = "Idle_rifle_aim",
 }
 
 local DEFAULT_ANIMATE_PATHS = {
@@ -59,17 +64,9 @@ local DEFAULT_ANIMATE_PATHS = {
 
 local LOOPED = {
     Idle = true,
-    Walk = true,
     Sprint = true,
     Crouch = true,
     CrouchWalk = true,
-    SlideLoop = true,
-    AimGlide = true,
-    AimGlideForward = true,
-    AimGlideBackward = true,
-    AimGlideTurn = true,
-    WallLatch = true,
-    Block = true,
     Fall = true,
 }
 
@@ -97,6 +94,8 @@ local ACTION_PRIORITY = {
     WallHopVertical = Enum.AnimationPriority.Action,
     WallHopHorizontal = Enum.AnimationPriority.Action,
     HardLanding = Enum.AnimationPriority.Action,
+    WeaponRelaxed = Enum.AnimationPriority.Action,
+    WeaponAim = Enum.AnimationPriority.Action,
 }
 
 local MOVEMENT_PRIORITY = {
@@ -126,6 +125,8 @@ function Tracks.new()
         CurrentLoopName = "None",
         CurrentAction = nil,
         CurrentActionName = "None",
+        CurrentWeapon = nil,
+        CurrentWeaponName = "None",
         LoadedCount = 0,
         FallbackCount = 0,
         RigType = "Unknown",
@@ -139,6 +140,8 @@ function Tracks.new()
         AimGlideBlendForward = 0,
         AimGlideBlendBackward = 0,
         AimGlideBlendTurn = 0,
+        Character = nil,
+        AimMotors = {},
     }, Tracks)
 end
 
@@ -165,6 +168,27 @@ function Tracks:MakeFallbackAnimation(alias, sourceName)
     anim.Name = alias .. "Fallback"
     anim.AnimationId = animationId
     return anim
+end
+
+function Tracks:MakeAnimationFromSource(alias, source)
+    if source and source:IsA("Animation") and self:GetAnimationId(source) then
+        return source, source.AnimationId
+    end
+
+    if source and source:IsA("KeyframeSequence") then
+        local ok, animationId = pcall(function()
+            return KeyframeSequenceProvider:RegisterKeyframeSequence(source)
+        end)
+        if ok and type(animationId) == "string" and animationId ~= "" then
+            local anim = Instance.new("Animation")
+            anim.Name = alias .. "FromSequence"
+            anim.AnimationId = animationId
+            return anim, source:GetFullName()
+        end
+        table.insert(self.Failed, alias .. " failed RegisterKeyframeSequence")
+    end
+
+    return nil, nil
 end
 
 function Tracks:GetDefaultAnimateAnimation(alias)
@@ -210,15 +234,21 @@ function Tracks:LoadTrack(alias, anim, sourceLabel)
 end
 
 function Tracks:LoadAlias(folder, alias, sourceName)
-    local anim = folder and folder:FindFirstChild(sourceName)
-    if anim and anim:IsA("Animation") and self:GetAnimationId(anim) then
-        if self:LoadTrack(alias, anim, "folder") then return end
-    elseif anim and not anim:IsA("Animation") then
-        table.insert(self.Failed, sourceName .. " is " .. anim.ClassName)
-    elseif anim then
-        table.insert(self.Failed, sourceName .. " has blank AnimationId")
+    local source, registryName = AnimationRegistry.GetSource(folder, alias)
+    if not source and folder then
+        source = folder:FindFirstChild(sourceName)
+        registryName = sourceName
+    end
+
+    local anim = self:MakeAnimationFromSource(alias, source)
+    if anim then
+        if self:LoadTrack(alias, anim, source and source:IsA("KeyframeSequence") and "sequence" or "folder") then return end
+    elseif source and not source:IsA("Animation") and not source:IsA("KeyframeSequence") then
+        table.insert(self.Failed, registryName .. " is " .. source.ClassName)
+    elseif source then
+        table.insert(self.Failed, registryName .. " has blank AnimationId")
     else
-        table.insert(self.Missing, sourceName)
+        table.insert(self.Missing, registryName or sourceName)
     end
 
     local defaultAnim = self:GetDefaultAnimateAnimation(alias)
@@ -266,8 +296,10 @@ function Tracks:GetDebugState()
         RigType = self.RigType,
         CurrentLoop = self.CurrentLoopName,
         CurrentAction = self.CurrentActionName,
+        CurrentWeapon = self.CurrentWeaponName,
         CurrentLoopSource = self.Sources[self.CurrentLoopName] or "None",
         CurrentActionSource = self.Sources[self.CurrentActionName] or "None",
+        CurrentWeaponSource = self.Sources[self.CurrentWeaponName] or "None",
         LastKeyframe = self.LastKeyframe,
         Missing = table.concat(self.Missing, ", "),
         Failed = table.concat(self.Failed, ", "),
@@ -277,11 +309,15 @@ end
 function Tracks:BindCharacter(character)
     self:StopAll(0)
     self:CleanupTrackConnections()
+    self.Character = character
     table.clear(self.Tracks)
+    table.clear(self.AimMotors)
     self.CurrentLoop = nil
     self.CurrentLoopName = "None"
     self.CurrentAction = nil
     self.CurrentActionName = "None"
+    self.CurrentWeapon = nil
+    self.CurrentWeaponName = "None"
     self.LoadedCount = 0
     self.FallbackCount = 0
     self.LastKeyframe = "None"
@@ -313,6 +349,7 @@ function Tracks:BindCharacter(character)
         table.insert(self.Missing, "ReplicatedStorage.Animations")
     end
     self:LoadFromFolder(folder)
+    self:CacheAimMotors(character)
 end
 
 function Tracks:StopAll(fade)
@@ -321,6 +358,9 @@ function Tracks:StopAll(fade)
             track:Stop(fade or 0.12)
         end)
     end
+    self.CurrentWeapon = nil
+    self.CurrentWeaponName = "None"
+    self:ResetProceduralAim()
 end
 
 function Tracks:PlayLoop(name, fade)
@@ -401,6 +441,85 @@ function Tracks:PlayAction(name, fade)
     track:Play(fade or 0.08)
 end
 
+function Tracks:PlayWeaponPose(name, fade)
+    local track = self.Tracks[name]
+    if not track then return end
+    if self.CurrentWeapon == track and track.IsPlaying then
+        track:AdjustWeight(1, fade or 0.12)
+        return
+    end
+    if self.CurrentWeapon and self.CurrentWeapon ~= track then
+        self.CurrentWeapon:Stop(fade or 0.12)
+    end
+    self.CurrentWeapon = track
+    self.CurrentWeaponName = name
+    track:Play(fade or 0.12, 1, 1)
+end
+
+function Tracks:StopWeaponPose(fade)
+    if self.CurrentWeapon then
+        self.CurrentWeapon:Stop(fade or 0.12)
+    end
+    self.CurrentWeapon = nil
+    self.CurrentWeaponName = "None"
+    self:ResetProceduralAim()
+end
+
+function Tracks:CacheAimMotors(character)
+    table.clear(self.AimMotors)
+    if not character then return end
+    local upperTorso = character:FindFirstChild("UpperTorso")
+    local lowerTorso = character:FindFirstChild("LowerTorso")
+    if upperTorso then
+        self.AimMotors.Neck = upperTorso:FindFirstChild("Neck")
+        self.AimMotors.RightShoulder = upperTorso:FindFirstChild("RightShoulder")
+        self.AimMotors.LeftShoulder = upperTorso:FindFirstChild("LeftShoulder")
+    end
+    if lowerTorso then
+        self.AimMotors.Waist = lowerTorso:FindFirstChild("Waist")
+    end
+end
+
+function Tracks:ResetProceduralAim()
+    for _, motor in pairs(self.AimMotors) do
+        if motor and motor:IsA("Motor6D") then
+            motor.Transform = CFrame.identity
+        end
+    end
+end
+
+function Tracks:ApplyProceduralAim(motor, isAiming, dt)
+    if not isAiming then
+        self:ResetProceduralAim()
+        return
+    end
+
+    local aim = motor and motor.GetAimDirection and motor:GetAimDirection() or Vector3.new(0, 0, -1)
+    local root = motor and motor.Root
+    if not root then return end
+
+    local localAim = root.CFrame:VectorToObjectSpace(aim)
+    local pitch = math.asin(math.clamp(localAim.Y, -1, 1))
+    local yaw = math.atan2(-localAim.X, -localAim.Z)
+    local alpha = Util.ExpDecaySharpness(18, dt or 1 / 60)
+
+    local function apply(name, pitchLimit, yawLimit, scale)
+        local joint = self.AimMotors[name]
+        if not joint or not joint:IsA("Motor6D") then return end
+        local target = CFrame.Angles(
+            math.clamp(pitch * scale, math.rad(-pitchLimit), math.rad(pitchLimit)),
+            math.clamp(yaw * scale, math.rad(-yawLimit), math.rad(yawLimit)),
+            0
+        )
+        joint.Transform = joint.Transform:Lerp(target, alpha)
+    end
+
+    apply("Neck", 35, 24, 0.55)
+    apply("Waist", 18, 18, 0.32)
+    apply("RightShoulder", 15, 15, 0.22)
+    apply("LeftShoulder", 15, 15, 0.22)
+end
+
 function Tracks:AdjustLoopSpeed(speed, referenceSpeed)
     if not self.CurrentLoop then return end
     local playbackSpeed = math.clamp(speed / math.max(referenceSpeed or 16, 1), 0.7, 1.45)
@@ -445,7 +564,7 @@ function Tracks:PlayMode(mode, params)
         self:PlayLoop(moving and "Sprint" or "Idle", 0.12)
         self:AdjustLoopSpeed(speed, 22)
     elseif mode == "Airborne" then
-        self:PlayLoop(params and params.VerticalSpeed < -2 and "Fall" or "Jump", 0.12)
+        self:PlayLoop("Fall", 0.12)
     elseif mode == "MeleeLocked" then
         -- Keep the current locomotion loop under melee actions.
     elseif mode == "Idle" then
@@ -516,6 +635,7 @@ function Params.new()
         VerticalSpeed = 0,
         IsGrounded = false,
         IsAiming = false,
+        IsShooting = false,
         IsBlocking = false,
         IsSlowed = false,
         IsStaggered = false,
@@ -594,6 +714,7 @@ function Params:UpdateFromMotor(motor)
     self.VerticalSpeed = v.Y
     self.IsGrounded = motor.IsGrounded
     self.IsAiming = motor.Input and motor.Input:IsHeld("Aim") or false
+    self.IsShooting = motor.Input and motor.Input:IsHeld("Fire") or false
     self.IsBlocking = motor.Input and motor.Input:IsHeld("MeleeBlock") or false
     self.SpeedMultiplier = motor.GetSpeedMultiplier and motor:GetSpeedMultiplier() or 1
     self.IsSlowed = motor.StatusController and motor.StatusController:IsSlowed() or false
@@ -624,11 +745,17 @@ function AnimationClient.new(clientState)
         State = clientState,
         Tracks = Tracks.new(),
         Params = Params.new(),
+        WeaponRemote = nil,
+        WeaponAttachMode = "RightHand",
+        HolsterUntil = 0,
     }, AnimationClient)
 end
 
 function AnimationClient:BindCharacter(character)
     self.Tracks:BindCharacter(character)
+    self.WeaponAttachMode = "RightHand"
+    self.HolsterUntil = 0
+    self.WeaponRemote = self.WeaponRemote or Net.GetRemoteEvent(Net.RemoteEvents.WeaponRequest)
 end
 
 function AnimationClient:OnModeChanged(mode)
@@ -654,8 +781,58 @@ end
 function AnimationClient:PlayParkour(animationName)
     if animationName == "SlideStart" then
         self.Tracks.SlideLoopDelayUntil = os.clock() + 0.18
+    elseif animationName == "DoubleJump" then
+        self.HolsterUntil = os.clock() + 0.42
+        self:SetWeaponAttachMode("BackHolster")
     end
     self.Tracks:PlayAction(animationName, 0.055)
+end
+
+function AnimationClient:SetWeaponAttachMode(mode)
+    if self.WeaponAttachMode == mode then return end
+    self.WeaponAttachMode = mode
+    self.WeaponRemote = self.WeaponRemote or Net.GetRemoteEvent(Net.RemoteEvents.WeaponRequest)
+    self.WeaponRemote:FireServer({ Action = "VisualAttachMode", Mode = mode })
+end
+
+function AnimationClient:IsRangedWeaponEquipped()
+    local weapon = Weapons.Get(self.State.EquippedWeaponId)
+    return weapon and weapon.Kind == "Ranged"
+end
+
+function AnimationClient:UpdateWeaponPose(dt, motor)
+    if not self:IsRangedWeaponEquipped() then
+        self.Tracks:StopWeaponPose(0.12)
+        return
+    end
+
+    local activeAim = self.Params.IsAiming or self.Params.IsShooting
+    if activeAim or os.clock() >= (self.HolsterUntil or 0) then
+        self:SetWeaponAttachMode("RightHand")
+    end
+
+    self.Tracks:PlayWeaponPose(activeAim and "WeaponAim" or "WeaponRelaxed", 0.14)
+    self.Tracks:ApplyProceduralAim(motor, activeAim, dt)
+end
+
+function AnimationClient:DebugPlayAnimation(alias)
+    if alias == "Idle_Rifle" or alias == "WeaponRelaxed" then alias = "WeaponRelaxed" end
+    if alias == "Idle_rifle_aim" or alias == "WeaponAim" then alias = "WeaponAim" end
+    if alias == "Sprint(remp)" then alias = "Sprint" end
+    if alias == "Jump_Start" then alias = "Jump" end
+    if alias == "Jump_Loop" then alias = "Fall" end
+    if alias == "Float" then alias = "AimGlideForward" end
+    if alias == "Float_Reverse" then alias = "AimGlideBackward" end
+    if alias == "Double_Jump" then alias = "DoubleJump" end
+    if alias == "Crouch_Idle" then alias = "Crouch" end
+
+    if alias == "WeaponRelaxed" or alias == "WeaponAim" then
+        self.Tracks:PlayWeaponPose(alias, 0.08)
+    elseif LOOPED[alias] then
+        self.Tracks:PlayLoop(alias, 0.08)
+    else
+        self.Tracks:PlayAction(alias, 0.08)
+    end
 end
 
 function AnimationClient:GetDebugState()
@@ -668,13 +845,14 @@ function AnimationClient:GetDebugState()
     return trackState
 end
 
-function AnimationClient:Update(_, motor)
+function AnimationClient:Update(dt, motor)
     self.Params:UpdateFromMotor(motor)
     if self.Params.IsBlocking then
         self.Tracks:PlayLoop("Block", 0.08)
         return
     end
     self.Tracks:PlayMode(self.Params.Mode, self.Params)
+    self:UpdateWeaponPose(dt, motor)
 end
 
 return AnimationClient

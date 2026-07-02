@@ -5,7 +5,7 @@ local Net = require(Shared:WaitForChild("Core"):WaitForChild("Net"))
 local Frames = require(Shared:WaitForChild("Data"):WaitForChild("Progression"):WaitForChild("Frames"))
 local Abilities = require(Shared:WaitForChild("Data"):WaitForChild("Combat"):WaitForChild("Abilities"))
 local Blocks = require(Shared:WaitForChild("Data"):WaitForChild("Combat"):WaitForChild("AbilityBlocks"))
-local Util = require(Shared:WaitForChild("Core"):WaitForChild("Util"))
+local AbilityHitboxResolver = require(script.Parent:WaitForChild("AbilityHitboxResolver"))
 local ActionLocks = require(script.Parent.Parent:WaitForChild("Core"):WaitForChild("ActionLocks"))
 local ValidationAudit = require(script.Parent.Parent:WaitForChild("Core"):WaitForChild("ValidationAudit"))
 
@@ -13,7 +13,7 @@ local AbilityService = {}
 AbilityService.__index = AbilityService
 
 function AbilityService.new(playerState, profiles, resources, combat)
-    return setmetatable({ PlayerState = playerState, Profiles = profiles, Resources = resources, Combat = combat, Remote = nil }, AbilityService)
+    return setmetatable({ PlayerState = playerState, Profiles = profiles, Resources = resources, Combat = combat, Hitboxes = AbilityHitboxResolver.new(), Remote = nil }, AbilityService)
 end
 
 function AbilityService:Start()
@@ -24,11 +24,31 @@ end
 function AbilityService:Replicate(player, ability, cooldownEnds)
     local remote = Net.GetRemoteEvent(Net.RemoteEvents.AbilityUpdate)
     remote:FireClient(player, {
+        Type = "Cooldown",
         AbilityId = ability.Id,
         CooldownEnds = cooldownEnds,
         Cooldown = ability.Cooldown or 1,
         ManaCost = ability.ManaCost or 0,
     })
+end
+
+function AbilityService:EmitAbilityEvent(player, ability, eventType, extra)
+    local payload = {
+        Type = eventType,
+        AbilityId = ability.Id,
+        Slot = ability.Slot,
+        Block = ability.Block,
+        Element = ability.Element,
+        Animation = ability.Animation,
+        Markers = ability.Markers,
+        VFX = ability.VFX,
+        SFX = ability.SFX,
+        ServerTime = os.clock(),
+    }
+    for key, value in pairs(extra or {}) do
+        payload[key] = value
+    end
+    Net.GetRemoteEvent(Net.RemoteEvents.AbilityUpdate):FireAllClients(payload)
 end
 
 function AbilityService:CanCast(player, slot, abilityId)
@@ -43,6 +63,7 @@ function AbilityService:CanCast(player, slot, abilityId)
     local ability = Abilities.Get(selected)
     if not ability then ValidationAudit.Reject(player, "Ability", "MissingDefinition") return false end
     local state = self.PlayerState:Get(player)
+    if state.SafeZone and not state.TrainingRange then ValidationAudit.Reject(player, "Ability", "SafeZone") return false end
     if ActionLocks.IsControlLocked(state) then ValidationAudit.Reject(player, "Ability", "ControlLocked") return false end
     local now = os.clock()
     if (state.AbilityCooldowns[ability.Id] or 0) > now then ValidationAudit.Reject(player, "Ability", "Cooldown") return false end
@@ -53,23 +74,6 @@ function AbilityService:CanCast(player, slot, abilityId)
     return true, ability
 end
 
-function AbilityService:GetTargets(player, radius, range)
-    local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-    if not root then return {} end
-    local center = root.Position + root.CFrame.LookVector * (range or 16)
-    local params = Util.MakeOverlapParams({ player.Character })
-    local parts = workspace:GetPartBoundsInRadius(center, radius or 10, params)
-    local out, seen = {}, {}
-    for _, part in ipairs(parts) do
-        local humanoid = part.Parent and part.Parent:FindFirstChildOfClass("Humanoid")
-        if humanoid and humanoid.Health > 0 and not seen[humanoid] then
-            seen[humanoid] = true
-            table.insert(out, humanoid)
-        end
-    end
-    return out
-end
-
 function AbilityService:GetAimDirection(player, payload, root)
     if typeof(payload.Direction) == "Vector3" and payload.Direction.Magnitude > 0.01 then
         return payload.Direction.Unit
@@ -77,32 +81,64 @@ function AbilityService:GetAimDirection(player, payload, root)
     return root.CFrame.LookVector
 end
 
-function AbilityService:GetProjectileTargets(player, ability, payload, root)
-    local origin = root.Position + Vector3.new(0, 2, 0)
-    local direction = self:GetAimDirection(player, payload, root)
-    local range = ability.Range or math.clamp((ability.Speed or 160) * 0.35, 24, 120)
-    local radius = ability.Radius or 2
-    local params = Util.MakeRaycastParams({ player.Character })
-    local result = Util.Spherecast(origin, radius, direction * range, params)
-    local impact = result and result.Position or origin + direction * range
-    local overlapParams = Util.MakeOverlapParams({ player.Character })
-    local parts = workspace:GetPartBoundsInRadius(impact, math.max(radius, 2), overlapParams)
-    local out, seen = {}, {}
-    if result then
-        local humanoid = Util.FindHumanoidFromPart(result.Instance)
-        if humanoid and humanoid.Health > 0 then
-            seen[humanoid] = true
-            table.insert(out, humanoid)
-        end
+function AbilityService:ApplySelfEffects(player, humanoid, ability)
+    if ability.Heal then self.Combat:Heal(player, ability.Heal) end
+    if ability.Buff and ability.Buff.Shield then self.Combat:AddShield(player, ability.Buff.Shield) end
+    if ability.Buff and ability.Buff.Mana then self.Combat:AddMana(player, ability.Buff.Mana) end
+    if ability.Status and humanoid then self.Combat:ApplyStatus(player, player, humanoid, ability.Status) end
+end
+
+function AbilityService:DamageTargets(player, targets, ability)
+    if (ability.Damage or 0) <= 0 and ability.Hostile ~= true then return end
+    for _, humanoid in ipairs(targets or {}) do
+        self.Combat:Damage(player, humanoid, {
+            Damage = ability.Damage or 0,
+            Element = ability.Element,
+            Status = ability.Status,
+            SourceType = "Ability",
+            AbilityId = ability.Id,
+        })
+        if ability.HealOnHit then self.Combat:Heal(player, ability.HealOnHit) end
     end
-    for _, part in ipairs(parts) do
-        local humanoid = Util.FindHumanoidFromPart(part)
-        if humanoid and humanoid.Health > 0 and not seen[humanoid] then
-            seen[humanoid] = true
-            table.insert(out, humanoid)
+end
+
+function AbilityService:RunField(player, ability, direction, castCFrame, humanoid)
+    local hitbox = ability.Hitbox or {}
+    local ticks = math.max(1, math.floor(tonumber(hitbox.Ticks or ability.Ticks) or 1))
+    local duration = math.max(0, tonumber(ability.Duration or hitbox.Duration) or 0)
+    local interval = ticks > 1 and duration / (ticks - 1) or 0
+
+    task.spawn(function()
+        for tickIndex = 1, ticks do
+            if not player.Parent then return end
+            local character = player.Character
+            local root = character and character:FindFirstChild("HumanoidRootPart")
+            if not root then return end
+            if tickIndex > 1 or ability.ApplyFieldSelfEachTick == true then
+                self:ApplySelfEffects(player, humanoid, ability)
+            end
+            local targets = self.Hitboxes:GetTargets(player, ability, direction, castCFrame)
+            self:DamageTargets(player, targets, ability)
+            self:EmitAbilityEvent(player, ability, "FieldTick", {
+                CastPosition = castCFrame.Position,
+                Direction = direction,
+                Tick = tickIndex,
+                Ticks = ticks,
+                TargetCount = #targets,
+                Radius = hitbox.Radius or ability.Radius,
+                Duration = duration,
+            })
+            if tickIndex < ticks and interval > 0 then
+                task.wait(interval)
+            end
         end
-    end
-    return out
+        self:EmitAbilityEvent(player, ability, "FieldExpire", {
+            CastPosition = castCFrame.Position,
+            Direction = direction,
+            Ticks = ticks,
+            Duration = duration,
+        })
+    end)
 end
 
 function AbilityService:Handle(player, payload)
@@ -113,34 +149,38 @@ function AbilityService:Handle(player, payload)
     local ok, ability = self:CanCast(player, slot, payload.AbilityId)
     if not ok then return end
     local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+    self:EmitAbilityEvent(player, ability, "Cast", {
+        CastPosition = root.Position,
+        Direction = self:GetAimDirection(player, payload, root),
+    })
 
-    if ability.Block == Blocks.Heal then
-        self.Combat:Heal(player, ability.Heal or 0)
-        if ability.Buff and ability.Buff.Shield then self.Combat:AddShield(player, ability.Buff.Shield) end
-        if ability.Buff and ability.Buff.Mana then self.Combat:AddMana(player, ability.Buff.Mana) end
-        if ability.Status and humanoid then self.Combat:ApplyStatus(player, player, humanoid, ability.Status) end
+    if ability.Block == Blocks.Heal or ability.Block == Blocks.Buff then
+        self:ApplySelfEffects(player, humanoid, ability)
+        self:EmitAbilityEvent(player, ability, "Impact", {
+            CastPosition = root.Position,
+            TargetCount = 1,
+            Friendly = true,
+        })
         return
     end
-    if ability.Block == Blocks.Buff then
-        if ability.Buff and ability.Buff.Shield then self.Combat:AddShield(player, ability.Buff.Shield) end
-        if ability.Buff and ability.Buff.Mana then self.Combat:AddMana(player, ability.Buff.Mana) end
-        if ability.Status and humanoid then self.Combat:ApplyStatus(player, player, humanoid, ability.Status) end
-        return
-    end
+
+    local direction = self:GetAimDirection(player, payload, root)
     if ability.Block == Blocks.Dash then
-        root.AssemblyLinearVelocity += root.CFrame.LookVector * (ability.Range or 24)
+        root.AssemblyLinearVelocity += direction * (ability.Range or 24)
+    end
+    if ability.Block == Blocks.Field then
+        self:ApplySelfEffects(player, humanoid, ability)
+        self:RunField(player, ability, direction, root.CFrame, humanoid)
+        return
     end
 
-    local targets
-    if ability.Block == Blocks.Projectile then
-        targets = self:GetProjectileTargets(player, ability, payload, root)
-    else
-        targets = self:GetTargets(player, ability.Radius or 8, ability.Block == Blocks.Projectile and 24 or 12)
-    end
-    for _, humanoid in ipairs(targets) do
-        self.Combat:Damage(player, humanoid, { Damage = ability.Damage or 0, Element = ability.Element, Status = ability.Status, SourceType = "Ability" })
-        if ability.Heal then self.Combat:Heal(player, ability.Heal) end
-    end
+    local targets = self.Hitboxes:GetTargets(player, ability, direction)
+    self:DamageTargets(player, targets, ability)
+    self:EmitAbilityEvent(player, ability, "Impact", {
+        CastPosition = root.Position,
+        Direction = direction,
+        TargetCount = #targets,
+    })
 end
 
 return AbilityService

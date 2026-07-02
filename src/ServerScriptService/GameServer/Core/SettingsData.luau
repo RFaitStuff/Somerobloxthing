@@ -3,6 +3,7 @@ local DataStoreService = game:GetService("DataStoreService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Core"):WaitForChild("Config"))
 local Net = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Core"):WaitForChild("Net"))
+local SettingsSchema = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Data"):WaitForChild("Settings"):WaitForChild("SettingsSchema"))
 
 local Data = {}
 Data.__index = Data
@@ -24,7 +25,7 @@ function Data:Load(player)
     local key = "settings_" .. player.UserId
     if self.Cache[player] then return self.Cache[player] end
     local ok, data = pcall(function() return self.Store:GetAsync(key) end)
-    data = (ok and typeof(data) == "table") and data or { Settings = {}, Rebinds = {} }
+    data = SettingsSchema.SanitizePayload((ok and typeof(data) == "table") and data or nil)
     self.Cache[player] = data
     return data
 end
@@ -32,11 +33,12 @@ end
 function Data:Save(player, payload)
     if typeof(payload) ~= "table" then return false end
     local key = "settings_" .. player.UserId
-    self.Cache[player] = payload
+    local sanitized = SettingsSchema.SanitizePayload(payload)
+    self.Cache[player] = sanitized
     task.spawn(function()
-        pcall(function() self.Store:SetAsync(key, payload) end)
+        pcall(function() self.Store:SetAsync(key, sanitized) end)
     end)
-    return true
+    return sanitized
 end
 
 return Data

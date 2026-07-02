@@ -8,6 +8,15 @@ local Net = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Core"
 local Feedback = {}
 Feedback.__index = Feedback
 
+local ELEMENT_COLORS = {
+    Kinetic = Color3.fromRGB(180, 205, 220),
+    Fire = Color3.fromRGB(255, 118, 54),
+    Blast = Color3.fromRGB(255, 185, 80),
+    Lightning = Color3.fromRGB(90, 175, 255),
+    Light = Color3.fromRGB(255, 244, 172),
+    Dark = Color3.fromRGB(178, 116, 255),
+}
+
 function Feedback.new()
     return setmetatable({ Bars = {} }, Feedback)
 end
@@ -16,9 +25,9 @@ function Feedback:Start()
     Net.GetRemoteEvent(Net.RemoteEvents.CombatFeedback).OnClientEvent:Connect(function(payload)
         if typeof(payload) ~= "table" then return end
         if payload.Type == "Shot" then
-            self:Tracer(payload.Origin, payload.HitPosition)
+            self:Tracer(payload)
         elseif payload.Type == "Explosion" then
-            self:Explosion(payload.Position, payload.Radius)
+            self:Explosion(payload.Position, payload.Radius, payload.Element)
         elseif payload.Type == "Damage" and payload.Target then
             self:EnsureHealthbar(payload.Target)
             self:UpdateHealthbar(payload.Target, payload)
@@ -34,7 +43,11 @@ function Feedback:Start()
     end)
 end
 
-function Feedback:Explosion(position, radius)
+function Feedback:GetColor(element, fallback)
+    return ELEMENT_COLORS[element] or fallback or Color3.fromRGB(110, 210, 255)
+end
+
+function Feedback:Explosion(position, radius, element)
     if typeof(position) ~= "Vector3" then return end
     radius = tonumber(radius) or 10
     local sphere = Instance.new("Part")
@@ -44,7 +57,7 @@ function Feedback:Explosion(position, radius)
     sphere.CanCollide = false
     sphere.CanQuery = false
     sphere.Material = Enum.Material.Neon
-    sphere.Color = Color3.fromRGB(255, 155, 70)
+    sphere.Color = self:GetColor(element, Color3.fromRGB(255, 155, 70))
     sphere.Transparency = 0.55
     sphere.Size = Vector3.new(radius * 2, radius * 2, radius * 2)
     sphere.CFrame = CFrame.new(position)
@@ -52,21 +65,25 @@ function Feedback:Explosion(position, radius)
     Debris:AddItem(sphere, 0.16)
 end
 
-function Feedback:Tracer(origin, hitPosition)
+function Feedback:Tracer(payload)
+    local origin = payload and payload.Origin
+    local hitPosition = payload and payload.HitPosition
     if typeof(origin) ~= "Vector3" or typeof(hitPosition) ~= "Vector3" then return end
     local delta = hitPosition - origin
     if delta.Magnitude <= 0.1 then return end
+    local isBeam = payload.FireMode == "Beam"
+    local width = isBeam and math.max(0.08, tonumber(payload.BeamWidth) or 0.28) or 0.08
     local part = Instance.new("Part")
-    part.Name = "ShotTracer"
+    part.Name = isBeam and "BeamTracer" or "ShotTracer"
     part.Anchored = true
     part.CanCollide = false
     part.CanQuery = false
     part.Material = Enum.Material.Neon
-    part.Color = Color3.fromRGB(110, 210, 255)
-    part.Size = Vector3.new(0.08, 0.08, delta.Magnitude)
+    part.Color = payload.ProjectileColor or self:GetColor(payload.Element, Color3.fromRGB(110, 210, 255))
+    part.Size = Vector3.new(width, width, delta.Magnitude)
     part.CFrame = CFrame.lookAt(origin + delta * 0.5, hitPosition)
     part.Parent = workspace
-    Debris:AddItem(part, 0.06)
+    Debris:AddItem(part, isBeam and 0.09 or 0.06)
 end
 
 function Feedback:EnsureHealthbar(model)

@@ -1,6 +1,7 @@
 --!nonstrict
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Core"):WaitForChild("Config"))
+local Modes = require(Shared:WaitForChild("Core"):WaitForChild("MovementModes"))
 local Util = require(Shared:WaitForChild("Core"):WaitForChild("Util"))
 
 local Orientation = {}
@@ -16,6 +17,17 @@ function Orientation:Update(dt)
     local desired
     if c.ForceFacingTimer and c.ForceFacingTimer > 0 and c.ForceFacingDirection then
         desired = c.ForceFacingDirection
+    elseif c.Mode == Modes.AimGliding then
+        local planar = Vector3.new(c.Velocity.X, 0, c.Velocity.Z)
+        local aim = Util.SafeUnit(Vector3.new(c:GetAimDirection().X, 0, c:GetAimDirection().Z), c:GetFlatForward())
+        if planar.Magnitude > 2 then
+            local travel = planar.Unit
+            local dot = math.clamp(travel:Dot(aim), -1, 1)
+            local reverseBlend = math.clamp((1 - dot) * 0.5, 0, 1)
+            desired = Util.SafeUnit(travel:Lerp(aim, reverseBlend), aim)
+        else
+            desired = aim
+        end
     elseif c.Input:IsHeld("Aim") then
         desired = c:GetFlatForward()
     else

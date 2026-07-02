@@ -246,6 +246,11 @@ function Melee:Handle(player, payload)
     local state = self.PlayerState:Get(player)
 
     if payload.Action == "Block" then
+        if state.SafeZone and not state.TrainingRange then
+            state.IsMeleeBlocking = false
+            ValidationAudit.Reject(player, "Melee", "SafeZone")
+            return
+        end
         if ActionLocks.IsControlLocked(state) and payload.IsBlocking == true then
             ValidationAudit.Reject(player, "Melee", "BlockControlLocked")
             return
@@ -255,6 +260,7 @@ function Melee:Handle(player, payload)
         return
     end
 
+    if state.SafeZone and not state.TrainingRange then ValidationAudit.Reject(player, "Melee", "SafeZone") return end
     if ActionLocks.IsControlLocked(state) then ValidationAudit.Reject(player, "Melee", "ControlLocked") return end
 
     local variant = MeleeDefs.NormalizeVariant(payload.Variant)

@@ -47,6 +47,21 @@ Frames.ById = {
             [4] = { UnlockLevel = 7, Variants = { "OverchargeField", "CapacitorPulse" } },
         },
     },
+    Luma = {
+        Id = "Luma",
+        DisplayName = "Luma",
+        Theme = "Light",
+        Role = "Float support / light control",
+        Passive = "Float and aim-glide actions last longer. Support fields grant a small burst of shield recovery.",
+        BaseStats = { Health = 118, Shield = 150, Armor = 28, Mana = 170, ManaRegen = 10, ShieldRegen = 28, Speed = 1.08, AimGlideMultiplier = 1.25 },
+        LevelGrowth = { Health = 5, Shield = 8, Mana = 7 },
+        AbilitySlots = {
+            [1] = { UnlockLevel = 1, Variants = { "GlimmerBolt", "SunflareOrb" } },
+            [2] = { UnlockLevel = 2, Variants = { "HavenMote", "PhaseStep" } },
+            [3] = { UnlockLevel = 4, Variants = { "RadiantWhip", "SolGate" } },
+            [4] = { UnlockLevel = 7, Variants = { "SolarBloom", "PrismBurst" } },
+        },
+    },
 }
 
 Frames.DefaultFrameId = "EmberVanguard"

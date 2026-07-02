@@ -1,5 +1,6 @@
 --!nonstrict
 local Blocks = require(script.Parent:WaitForChild("AbilityBlocks"))
+local Hitboxes = require(script.Parent:WaitForChild("AbilityHitboxes"))
 
 local Abilities = {}
 
@@ -30,6 +31,15 @@ Abilities.ById = {
     RailSurge = { Id = "RailSurge", Name = "Rail Surge", Slot = 3, Block = Blocks.Projectile, Element = "Lightning", Damage = 92, ManaCost = 52, Cooldown = 11, Speed = 260, Radius = 3, Status = { Knockback = { Force = 34, Up = 8 } } },
     OverchargeField = { Id = "OverchargeField", Name = "Overcharge Field", Slot = 4, Block = Blocks.Area, Element = "Lightning", Damage = 128, ManaCost = 82, Cooldown = 22, Radius = 19, Status = { Stagger = { Duration = 0.45 }, Burn = { Chance = 0.2, Duration = 3 } } },
     CapacitorPulse = { Id = "CapacitorPulse", Name = "Capacitor Pulse", Slot = 4, Block = Blocks.Heal, Element = "Lightning", Heal = 45, ManaCost = 78, Cooldown = 24, Radius = 18, Buff = { Shield = 115 } },
+
+    GlimmerBolt = { Id = "GlimmerBolt", Name = "Glimmer Bolt", Slot = 1, Block = Blocks.Projectile, Element = "Light", Damage = 46, HealOnHit = 8, ManaCost = 18, Cooldown = 2.2, Hitbox = Hitboxes.Merge("LightBolt", { ImpactRadius = 6 }), Status = { Stagger = { Chance = 0.18, Duration = 0.2 } }, Animation = "Ability_1", Markers = { Release = "AbilityRelease", Recover = "AbilityRecover" } },
+    SunflareOrb = { Id = "SunflareOrb", Name = "Sunflare Orb", Slot = 1, Block = Blocks.Projectile, Element = "Fire", Damage = 62, ManaCost = 28, Cooldown = 4.2, Hitbox = Hitboxes.Merge("Fireball", { Radius = 4, ImpactRadius = 10 }), Status = { Burn = { Chance = 0.65, Duration = 4 } }, Animation = "Ability_1", Markers = { Release = "AbilityRelease", Recover = "AbilityRecover" } },
+    HavenMote = { Id = "HavenMote", Name = "Haven Mote", Slot = 2, Block = Blocks.Field, Element = "Light", Heal = 34, ManaCost = 34, Cooldown = 10, Duration = 7, Buff = { Shield = 45, Mana = 18 }, Hitbox = Hitboxes.Merge("SupportField", { Radius = 15, Ticks = 3 }), Status = { ManaRegen = { Duration = 5 } }, Animation = "Ability_2", Markers = { Release = "AbilityRelease", Recover = "AbilityRecover" } },
+    PhaseStep = { Id = "PhaseStep", Name = "Phase Step", Slot = 2, Block = Blocks.Dash, Element = "Light", Damage = 32, ManaCost = 30, Cooldown = 6.5, Range = 38, Hitbox = Hitboxes.Merge("BlinkCapsule", { Range = 38, Radius = 3.5 }), Status = { Slow = { Chance = 0.35, Multiplier = 0.65, Duration = 2 } }, Animation = "Ability_2", Markers = { Release = "AbilityRelease", Recover = "AbilityRecover" } },
+    RadiantWhip = { Id = "RadiantWhip", Name = "Radiant Whip", Slot = 3, Block = Blocks.Whip, Element = "Light", Damage = 72, ManaCost = 44, Cooldown = 8.5, Hitbox = Hitboxes.Merge("WhipTrace", { Range = 27, Radius = 3.25, ArcDegrees = 96 }), Status = { Stagger = { Chance = 0.45, Duration = 0.28 } }, Animation = "Ability_3", Markers = { Active = "MeleeActive", Recover = "MeleeRecover" } },
+    SolGate = { Id = "SolGate", Name = "Sol Gate", Slot = 3, Block = Blocks.Beam, Element = "Light", Damage = 82, ManaCost = 52, Cooldown = 11, Hitbox = Hitboxes.Merge("Beam", { Range = 105, Radius = 3.5 }), Status = { Burn = { Chance = 0.25, Duration = 3 } }, Animation = "Ability_3", Markers = { Release = "AbilityRelease", Recover = "AbilityRecover" } },
+    SolarBloom = { Id = "SolarBloom", Name = "Solar Bloom", Slot = 4, Block = Blocks.Field, Element = "Light", Damage = 118, Heal = 46, ManaCost = 82, Cooldown = 24, Duration = 8, Buff = { Shield = 70 }, Hitbox = Hitboxes.Merge("SupportField", { Radius = 22, Ticks = 4, MaxTargets = 16 }), Status = { Burn = { Chance = 0.35, Duration = 4 }, ManaRegen = { Duration = 5 } }, Animation = "Ability_4", Markers = { Release = "AbilityRelease", Recover = "AbilityRecover" } },
+    PrismBurst = { Id = "PrismBurst", Name = "Prism Burst", Slot = 4, Block = Blocks.Area, Element = "Light", Damage = 148, ManaCost = 86, Cooldown = 25, Hitbox = { Shape = "Sphere", Radius = 20, Offset = Vector3.new(0, 0, -8), MaxTargets = 18, DebugColor = Color3.fromRGB(255, 247, 176) }, Status = { Stagger = { Duration = 0.4 } }, Animation = "Ability_4", Markers = { Release = "AbilityRelease", Recover = "AbilityRecover" } },
 }
 
 function Abilities.Get(id)

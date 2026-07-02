@@ -1,0 +1,37 @@
+--!nonstrict
+return {
+    VanguardCosmeticBundle = {
+        DisplayName = "Vanguard Cosmetic Bundle",
+        Category = "Cosmetics",
+        Cost = { Dallions = 80 },
+        DirectRobuxCost = 79,
+        RobuxProductId = 0,
+        OutputType = "Bundle",
+        OutputId = "VanguardCosmeticBundle",
+        Amount = 1,
+        Stock = -1,
+    },
+    OrbiterStyleBundle = {
+        DisplayName = "Orbiter Style Bundle",
+        Category = "Room",
+        Cost = { Dallions = 60 },
+        DirectRobuxCost = 59,
+        RobuxProductId = 0,
+        OutputType = "Bundle",
+        OutputId = "OrbiterStyleBundle",
+        Amount = 1,
+        Stock = -1,
+    },
+    RelaySuitePermit = {
+        DisplayName = "Relay Suite Permit",
+        Category = "Room",
+        Cost = { Dallions = 150 },
+        DirectRobuxCost = 129,
+        RobuxProductId = 0,
+        OutputType = "RoomTemplate",
+        OutputId = "RelaySuite",
+        Amount = 1,
+        Stock = 1,
+        MasteryRank = 2,
+    },
+}

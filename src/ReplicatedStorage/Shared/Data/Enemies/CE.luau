@@ -20,6 +20,9 @@ CE.RoleRewards = {
 CE.FactionRewards = {
     EarthBandits = { Vitality = 0.5, Might = 0.5 },
     VoidCult = { Focus = 0.5, Flow = 0.5 },
+    Ryato = { Haste = 0.5, Might = 0.5 },
+    MoonveilRemnants = { Flow = 0.5, Guard = 0.5 },
+    MarsRemnant = { Guard = 0.75 },
 }
 
 return CE

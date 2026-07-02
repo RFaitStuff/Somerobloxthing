@@ -14,22 +14,26 @@ end
 function ActionExecutor:GetWallIntent()
     local c = self.Controller
     if not c.HasWallContact then return 0 end
-    local intoWall = -c.WallNormal
+    local intoWall = -Util.SafeUnit(c.WallNormal, Vector3.yAxis)
     local move = c:GetMoveDirection()
-    local moveDot = move.Magnitude > 0.05 and move.Unit:Dot(intoWall) or 0
-    local aimDot = Util.SafeUnit(c:GetAimDirection(), c:GetFlatForward()):Dot(intoWall)
-    return math.max(moveDot, aimDot * 0.85, c.WallApproach or 0)
+    local aim = Util.SafeUnit(c:GetAimDirection(), c:GetFlatForward())
+    local moveDot = move.Magnitude > 0.05 and move.Unit:Dot(intoWall) or -1
+    local aimDot = aim:Dot(intoWall)
+    local tangentDot = move.Magnitude > 0.05 and math.abs(move.Unit:Dot(Util.SafeUnit(c.WallTangent, c:GetFlatForward()))) or 0
+    return math.max(moveDot, aimDot * 0.6, tangentDot * 0.55, c.WallApproach or 0)
 end
 
 function ActionExecutor:ShouldWallHop(fromHeld)
     local c = self.Controller
-    if not c.HasWallContact then return false end
+    if c.IsGrounded or not c.HasWallContact then return false end
+    if not c.WallNormal or c.WallNormal.Magnitude <= 0.05 then return false end
     local intent = self:GetWallIntent()
-    if fromHeld and not (Config.Movement.WallHopChainEnabled == true) then return false end
+    if intent < (Config.Movement.WallHopLookDotMin or 0.08) then return false end
+    if c.WallContactAge and c.WallContactAge < (Config.Movement.WallHopMinContactTime or 0.035) then return false end
+    if not fromHeld then return true end
+    if Config.Movement.WallHopChainEnabled ~= true then return false end
     if fromHeld and (c.WallHopRepeatTimer or 0) > 0 then return false end
-    if fromHeld and intent < (Config.Movement.WallHopMoveIntoWallDotMin or 0.08) then return false end
-    if not fromHeld and intent < (Config.Movement.WallHopLookDotMin or 0.06) then return false end
-    return true
+    return intent >= (Config.Movement.WallHopHeldIntentMin or 0.28)
 end
 
 function ActionExecutor:TryJump()
@@ -129,20 +133,33 @@ function ActionExecutor:TryWallHop(fromHeld)
     if c:IsMovementLockedByStatus() or not self:ShouldWallHop(fromHeld) then return false end
     local away = Util.SafeUnit(c.WallNormal, Vector3.yAxis)
     local move = c:GetMoveDirection()
-    local tangent = c.WallTangent and c.WallTangent.Magnitude > 0.05 and c.WallTangent or c:GetFlatForward()
-    if move.Magnitude > 0.05 and move.Unit:Dot(tangent) < 0 then
-        tangent = -tangent
+    local aim = Util.SafeUnit(c:GetAimDirection(), c:GetFlatForward())
+    local tangent = Util.SafeUnit(c.WallTangent, c:GetFlatForward())
+    if move.Magnitude > 0.05 then
+        local projectedMove = Util.ProjectOnPlane(move.Unit, away)
+        if projectedMove.Magnitude > 0.05 then
+            tangent = projectedMove.Unit
+        elseif move.Unit:Dot(tangent) < 0 then
+            tangent = -tangent
+        end
     end
-    local forward = Util.SafeUnit(tangent + c:GetFlatForward() * 0.35, c:GetFlatForward())
+
+    local aimFlat = Vector3.new(aim.X, 0, aim.Z)
+    local cameraCarry = Util.SafeUnit(Util.ProjectOnPlane(Vector3.new(aimFlat.X, 0, aimFlat.Z), away), tangent)
+    local alongWall = Util.SafeUnit(tangent * 0.68 + cameraCarry * 0.32, tangent)
+    local verticalBias = math.clamp(aim.Y, -0.2, 0.85)
+    local upImpulse = Config.Movement.WallHopUpImpulse + math.max(verticalBias, 0) * (Config.Movement.WallHopAimUpBonus or 16)
+    local alongImpulse = Config.Movement.WallHopForwardImpulse * (move.Magnitude > 0.05 and 1 or 0.72)
+
     local wallPlaneCarry = Vector3.new(c.Velocity.X, 0, c.Velocity.Z)
     wallPlaneCarry -= away * wallPlaneCarry:Dot(away)
-    c.Velocity = Vector3.new(wallPlaneCarry.X * 0.75, math.max(c.Velocity.Y, 0), wallPlaneCarry.Z * 0.75)
-    c:ApplyImpulse(away * Config.Movement.WallHopAwayImpulse + Vector3.yAxis * Config.Movement.WallHopUpImpulse + forward * Config.Movement.WallHopForwardImpulse)
+    c.Velocity = Vector3.new(wallPlaneCarry.X * 0.58, math.max(c.Velocity.Y, -4), wallPlaneCarry.Z * 0.58)
+    c:ApplyImpulse(away * Config.Movement.WallHopAwayImpulse + Vector3.yAxis * upImpulse + alongWall * alongImpulse)
     c.ModeTimer = Config.Movement.WallHopModeTime
     c.WallHopRepeatTimer = Config.Movement.WallHopHeldRepeatInterval or 0.18
     c.LastWallNormal = away
     c.LastWallNormalTimer = Config.Movement.WallRecontactAssistTime or 0.38
-    c.ForceFacingDirection = c:GetFlatForward()
+    c.ForceFacingDirection = Util.SafeUnit(Vector3.new(aim.X, 0, aim.Z), alongWall)
     c.ForceFacingTimer = Config.Movement.WallHopFaceCameraTime or 0.22
     c:ResetSurfaceActions()
     if c.WallProbe then
@@ -150,8 +167,7 @@ function ActionExecutor:TryWallHop(fromHeld)
     end
     c:SetMode(Modes.WallHopping)
     if c.Animation and c.Animation.PlayParkour then
-        local anim = math.abs(c:GetAimDirection().Y) > 0.35 and "WallHopVertical" or "WallHopHorizontal"
-        c.Animation:PlayParkour(anim)
+        c.Animation:PlayParkour("DoubleJump")
     end
     c:SendAction("WallHop")
     return true

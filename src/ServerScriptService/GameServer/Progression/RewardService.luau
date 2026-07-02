@@ -4,6 +4,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Rewards = require(ServerStorage:WaitForChild("ServerData"):WaitForChild("Rewards"):WaitForChild("RewardTables"))
+local MissionNodes = require(ServerStorage:WaitForChild("ServerData"):WaitForChild("Missions"):WaitForChild("MissionNodes"))
+local EnemyDropTables = require(ServerStorage:WaitForChild("ServerData"):WaitForChild("Rewards"):WaitForChild("EnemyDropTables"))
 local CE = require(ServerStorage:WaitForChild("ServerData"):WaitForChild("Enemies"):WaitForChild("CERewards"))
 local XP = require(Shared:WaitForChild("Data"):WaitForChild("Progression"):WaitForChild("XP"))
 local Net = require(Shared:WaitForChild("Core"):WaitForChild("Net"))
@@ -23,6 +25,22 @@ local function addMaterials(profile, materials)
     for id, amount in pairs(materials or {}) do
         profile.Inventory.Materials[id] = (profile.Inventory.Materials[id] or 0) + amount
     end
+end
+
+local function awardCurrencies(profiles, player, reward)
+    for _, currencyId in ipairs({ "Coins", "Credits", "Dallions" }) do
+        local amount = reward and reward[currencyId]
+        if amount then
+            profiles:GrantCurrency(player, currencyId, amount)
+        end
+    end
+end
+
+local function rollAmount(amount)
+    if typeof(amount) == "table" then
+        return math.random(tonumber(amount[1]) or 1, tonumber(amount[2]) or tonumber(amount[1]) or 1)
+    end
+    return math.max(1, tonumber(amount) or 1)
 end
 
 local function addCePool(frameState, pool, total)
@@ -122,28 +140,48 @@ function RewardService:AwardSharedXP(sourcePlayer, amount)
     end
 end
 
-function RewardService:AwardEnemyKill(player, enemyRole, enemyId, sourceType, faction)
+function RewardService:AwardEnemyKill(player, enemyRole, enemyId, sourceType, faction, enemyLevel)
     local profile = self.Profiles:Get(player)
     local frameState = profile.Frames[profile.SelectedFrameId]
     local weaponState = profile.Weapons[profile.Equipped.ActiveWeapon]
     local reward = Rewards.Enemy[enemyRole] or Rewards.Enemy.Gunner
-    self:AwardXP(profile, frameState, weaponState, reward.XP, sourceType)
+    local levelScale = 1 + math.max(0, (tonumber(enemyLevel) or 1) - 1) * 0.015
+    self:AwardXP(profile, frameState, weaponState, math.floor((reward.XP or 0) * levelScale), sourceType)
     self:AddCE(profile, frameState, enemyId or enemyRole, enemyRole, faction)
     addMaterials(profile, reward.Materials)
+    local state = self.PlayerState:Get(player)
+    local activeMission = state.ActiveMission
+    local missionSetup = activeMission and MissionNodes.GetMissionSetup(activeMission.Id, activeMission.NodeId)
+    local drops = missionSetup and missionSetup.Drops
+    local tableId = drops and drops.EnemyDropTable
+    local rolledDrops = {}
+    for _, entry in ipairs((tableId and EnemyDropTables[tableId]) or {}) do
+        local chance = math.clamp(tonumber(entry.Chance) or 0, 0, 1)
+        if math.random() <= chance then
+            local amount = rollAmount(entry.Amount)
+            if entry.Type == "Material" then
+                profile.Inventory.Materials[entry.Id] = (profile.Inventory.Materials[entry.Id] or 0) + amount
+            end
+            table.insert(rolledDrops, { Type = entry.Type, Id = entry.Id, Amount = amount })
+        end
+    end
     self.FrameService:Refresh(player)
     self.Profiles:Replicate(player)
-    self:AwardSharedXP(player, reward.XP or 0)
-    if self.Remote then self.Remote:FireClient(player, { Type = "EnemyKill", Role = enemyRole, Reward = reward }) end
+    self:AwardSharedXP(player, math.floor((reward.XP or 0) * levelScale))
+    if self.Remote then self.Remote:FireClient(player, { Type = "EnemyKill", Role = enemyRole, Level = enemyLevel, Reward = reward, Drops = rolledDrops }) end
 end
 
 function RewardService:AwardMission(player, missionId)
     local profile = self.Profiles:Get(player)
-    local reward = Rewards.Mission[missionId]
+    local state = self.PlayerState:Get(player)
+    local activeMission = state.ActiveMission
+    local reward = MissionNodes.GetReward(missionId, activeMission and activeMission.NodeId) or Rewards.Mission[missionId]
     if not reward then return end
     local frameState = profile.Frames[profile.SelectedFrameId]
     local weaponState = profile.Weapons[profile.Equipped.ActiveWeapon]
     self:AwardXP(profile, frameState, weaponState, reward.XP, "Mission")
     addMaterials(profile, reward.Materials)
+    awardCurrencies(self.Profiles, player, reward)
     self.FrameService:Refresh(player)
     self.Profiles:Replicate(player)
     if self.Remote then self.Remote:FireClient(player, { Type = "Mission", MissionId = missionId, Reward = reward }) end

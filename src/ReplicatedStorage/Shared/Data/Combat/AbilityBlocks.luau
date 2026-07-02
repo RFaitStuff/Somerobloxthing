@@ -6,4 +6,7 @@ return {
     Buff = "Buff",
     Debuff = "Debuff",
     Heal = "Heal",
+    Field = "Field",
+    Whip = "Whip",
+    Beam = "Beam",
 }
