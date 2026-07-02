@@ -27,6 +27,7 @@ function ProfileService.new(playerState)
         PlayerState = playerState,
         Profiles = {},
         Metadata = {},
+        DevBackups = {},
         Remote = nil,
         StoryReplicator = nil,
         Store = nil,
@@ -258,13 +259,15 @@ function ProfileService:Save(player, release)
         if release then
             self.Profiles[player] = nil
             self.Metadata[player] = nil
+            self.DevBackups[player] = nil
         end
         return true
     end
     local store = self:GetStore()
     if not store then return false end
 
-    self:BackfillProfile(profile)
+    local profileToSave = self.DevBackups[player] or profile
+    self:BackfillProfile(profileToSave)
     local key = self:GetKey(player)
     local saved = false
     local ok, err = pcall(function()
@@ -274,7 +277,7 @@ function ProfileService:Save(player, release)
                 return existing
             end
             saved = true
-            return self:BuildEnvelope(player, profile, release == true)
+            return self:BuildEnvelope(player, profileToSave, release == true)
         end)
     end)
     if not ok then
@@ -287,6 +290,7 @@ function ProfileService:Save(player, release)
     if release then
         self.Profiles[player] = nil
         self.Metadata[player] = nil
+        self.DevBackups[player] = nil
     end
     return saved
 end
@@ -299,6 +303,7 @@ function ProfileService:SaveAll(release)
         elseif release then
             self.Profiles[player] = nil
             self.Metadata[player] = nil
+            self.DevBackups[player] = nil
         end
     end
     return ok
@@ -750,28 +755,45 @@ function ProfileService:SelectAbilityVariant(player, slot, abilityId)
     return true
 end
 
+function ProfileService:ReplicateEquipmentState(player)
+    local state = self.PlayerState:Get(player)
+    Net.GetRemoteEvent(Net.RemoteEvents.StateUpdate):FireClient(player, {
+        EquippedWeaponId = state.EquippedWeaponId,
+        EquippedMeleeId = state.EquippedMeleeId,
+        CanAimGlide = state.CanAimGlide,
+        DevMode = state.DevMode,
+        LocationId = state.LocationId,
+        SafeZone = state.SafeZone,
+        TrainingRange = state.TrainingRange,
+    })
+end
+
 function ProfileService:EquipWeapon(player, slot, weaponId)
     local profile = self:Get(player)
     local def = Weapons.Get(weaponId)
     if not def then return false end
     if not profile.Weapons[weaponId] then return false end
 
+    profile.Equipped = profile.Equipped or { Primary = "Rifle", Secondary = "MicroRocket", Melee = "Skana", ActiveWeapon = "Rifle" }
     local state = self.PlayerState:Get(player)
     slot = slot or (def.Kind == "Melee" and "Melee" or "Primary")
-
-    if slot == "Active" and def.Kind == "Ranged" then
-        slot = profile.Equipped.ActiveWeapon == profile.Equipped.Secondary and "Secondary" or "Primary"
-    end
 
     if slot == "Melee" then
         if def.Kind ~= "Melee" then return false end
         profile.Equipped.Melee = weaponId
         state.EquippedMeleeId = weaponId
-        -- Melee is a separate equipment slot. Do not replace the active gun.
     elseif slot == "Primary" or slot == "Secondary" then
         if def.Kind ~= "Ranged" then return false end
         profile.Equipped[slot] = weaponId
         profile.Equipped.ActiveWeapon = weaponId
+        state.EquippedWeaponId = weaponId
+        state.CanAimGlide = Weapons.CanAimGlide(weaponId)
+    elseif slot == "Active" then
+        if def.Kind ~= "Ranged" then return false end
+        profile.Equipped.ActiveWeapon = weaponId
+        if profile.Equipped.Primary ~= weaponId and profile.Equipped.Secondary ~= weaponId then
+            profile.Equipped.Primary = weaponId
+        end
         state.EquippedWeaponId = weaponId
         state.CanAimGlide = Weapons.CanAimGlide(weaponId)
     else
@@ -779,9 +801,147 @@ function ProfileService:EquipWeapon(player, slot, weaponId)
     end
 
     self:Replicate(player)
+    self:ReplicateEquipmentState(player)
     return true
 end
 
+function ProfileService:ResetProgress(player)
+    local profile = self:CreateDefaultProfile()
+    self:BackfillProfile(profile)
+    self.Profiles[player] = profile
+    self.DevBackups[player] = nil
+    local state = self.PlayerState:Get(player)
+    state.Profile = profile
+    state.EquippedWeaponId = profile.Equipped.ActiveWeapon
+    state.EquippedMeleeId = profile.Equipped.Melee
+    state.CanAimGlide = Weapons.CanAimGlide(state.EquippedWeaponId)
+    state.DevMode = "ResetProgress"
+    state.LocationId = "Moon"
+    state.SafeZone = true
+    state.TrainingRange = false
+    state.WeaponRuntime = {}
+    state.AbilityCooldowns = {}
+    self:Replicate(player)
+    self:ReplicateEquipmentState(player)
+    return true
+end
+
+local function teleportCharacter(player, cf)
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if root and root:IsA("BasePart") then
+        root.CFrame = cf
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+    end
+end
+
+function ProfileService:EnsureDevBackup(player)
+    if self.DevBackups[player] then return end
+    local profile = self.Profiles[player]
+    if profile then
+        self.DevBackups[player] = deepCopy(profile)
+    end
+end
+
+function ProfileService:RestoreDevBackup(player)
+    local backup = self.DevBackups[player]
+    if not backup then return false end
+    local restored = deepCopy(backup)
+    self:BackfillProfile(restored)
+    self.Profiles[player] = restored
+    self.DevBackups[player] = nil
+
+    local state = self.PlayerState:Get(player)
+    state.Profile = restored
+    state.EquippedWeaponId = restored.Equipped.ActiveWeapon
+    state.EquippedMeleeId = restored.Equipped.Melee
+    state.CanAimGlide = Weapons.CanAimGlide(state.EquippedWeaponId)
+    state.WeaponRuntime = {}
+    state.AbilityCooldowns = {}
+    return true
+end
+
+function ProfileService:ApplyDevelopmentMode(player, mode, startId)
+    mode = tostring(mode or "NormalPlay")
+    if mode == "ResetProgress" then
+        return self:ResetProgress(player)
+    end
+
+    if mode == "NormalPlay" then
+        self:RestoreDevBackup(player)
+    else
+        self:EnsureDevBackup(player)
+    end
+
+    local profile = self:Get(player)
+    local progress = self:GetStoryProgress(player)
+    local state = self.PlayerState:Get(player)
+    state.DevMode = mode
+
+    if mode == "DevSpace" then
+        for frameId in pairs(Frames.ById or {}) do
+            profile.UnlockedFrames[frameId] = true
+            profile.Frames[frameId] = profile.Frames[frameId] or { Level = 1, XP = 0, CE = {}, EnemyCECounts = {}, SelectedVariants = {} }
+        end
+        for weaponId in pairs(Weapons.ById or {}) do
+            profile.Weapons[weaponId] = profile.Weapons[weaponId] or makeLevelState()
+        end
+        progress.UnlockedLocations.Moon = true
+        progress.UnlockedLocations.Earth = true
+        progress.UnlockedLocations.Hub = true
+        progress.UnlockedLocations.Mars = true
+        progress.UnlockedLocations.AtlasShard = true
+        state.LocationId = "DevSpace"
+        state.SafeZone = false
+        state.TrainingRange = true
+        teleportCharacter(player, CFrame.new(0, 10, 0))
+    elseif mode == "NormalPlay" then
+        state.DevMode = "NormalPlay"
+        state.LocationId = state.LocationId == "DevSpace" and "Moon" or (state.LocationId or "Moon")
+        state.SafeZone = state.LocationId == "Hub" or state.LocationId == "Moon"
+        state.TrainingRange = false
+    elseif mode == "StartAt" then
+        startId = tostring(startId or "MoonStart")
+        state.DevMode = "StartAt:" .. startId
+        progress.UnlockedLocations.Moon = true
+        if startId == "EarthStart" or startId == "HubStart" or startId == "MarsStart" then
+            progress.UnlockedLocations.Earth = true
+            progress.CompletedSteps.OpenEarthGate = true
+            progress.CompletedNodes.Moon_CraterGate = true
+        end
+        if startId == "HubStart" or startId == "MarsStart" then
+            progress.UnlockedLocations.Hub = true
+            progress.CompletedSteps.CompleteMarsGate = true
+        end
+        if startId == "MarsStart" then
+            progress.UnlockedLocations.Mars = true
+            progress.CompletedSteps.DefeatDeadeye = true
+        end
+        local locationByStart = {
+            MoonStart = "Moon",
+            EarthStart = "Earth",
+            HubStart = "Hub",
+            MarsStart = "Mars",
+        }
+        state.LocationId = locationByStart[startId] or "Moon"
+        state.SafeZone = state.LocationId == "Hub" or state.LocationId == "Moon"
+        state.TrainingRange = state.LocationId ~= "Hub"
+        teleportCharacter(player, CFrame.new(0, 10, 0))
+    else
+        return false
+    end
+
+    state.EquippedWeaponId = profile.Equipped.ActiveWeapon
+    state.EquippedMeleeId = profile.Equipped.Melee
+    state.CanAimGlide = Weapons.CanAimGlide(state.EquippedWeaponId)
+    self:Replicate(player)
+    self:ReplicateEquipmentState(player)
+    if self.StoryReplicator then
+        self.StoryReplicator(player)
+    end
+    return true
+end
 
 
 local function contains(list, value)

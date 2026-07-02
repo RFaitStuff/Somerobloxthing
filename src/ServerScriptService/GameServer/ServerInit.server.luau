@@ -309,6 +309,20 @@ Net.GetRemoteEvent(Net.RemoteEvents.ProfileRequest).OnServerEvent:Connect(functi
             else
                 ValidationAudit.Reject(player, "Profile", "InvalidFrameLevel")
             end
+        elseif payload.Action == "ApplyDevMode" then
+            if profiles:ApplyDevelopmentMode(player, payload.Mode, payload.StartId) then
+                frames:Refresh(player)
+                resources:Ensure(player)
+                profiles:Replicate(player)
+                resources:Replicate(player)
+                world:Replicate(player)
+                story:Replicate(player)
+                inventoryService:Replicate(player)
+                craftingService:Replicate(player)
+                masteryService:Replicate(player)
+            else
+                ValidationAudit.Reject(player, "Profile", "InvalidDevMode")
+            end
         elseif payload.Action == "RequestSnapshot" then
             frames:Refresh(player)
             resources:Ensure(player)

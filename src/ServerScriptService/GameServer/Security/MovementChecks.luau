@@ -10,6 +10,9 @@ function Envelope.new(playerState)
 end
 
 function Envelope:Check(player)
+    if Config.Security and (Config.Security.AntiCheatEnabled == false or Config.Security.MovementCorrectionsEnabled == false) then
+        return nil
+    end
     local state = self.PlayerState:Get(player)
     local character = player.Character
     local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -52,6 +55,9 @@ function AntiCheat.new(playerState)
 end
 
 function AntiCheat:Start()
+    if Config.Security and (Config.Security.AntiCheatEnabled == false or Config.Security.MovementCorrectionsEnabled == false) then
+        return
+    end
     self.CorrectionRemote = Net.GetRemoteEvent(Net.RemoteEvents.Correction)
     RunService.Heartbeat:Connect(function()
         self:Update()

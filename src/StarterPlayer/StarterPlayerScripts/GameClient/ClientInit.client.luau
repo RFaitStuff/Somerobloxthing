@@ -3,6 +3,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Net = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Core"):WaitForChild("Net"))
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Core"):WaitForChild("Config"))
 local Debug = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Core"):WaitForChild("Debug"))
 
 local Root = script.Parent
@@ -134,6 +135,12 @@ end)
 
 Net.GetRemoteEvent(Net.RemoteEvents.Correction).OnClientEvent:Connect(function(payload)
     Debug.Try(Debug.Channels.Network, "Correction", function()
+        -- Movement corrections are intentionally disabled while the custom Warframe-style
+        -- controller is client-authored. Applying this remote causes visible rubber-banding
+        -- whenever the server envelope disagrees with parkour/glide speeds.
+        if not (Config.Security and Config.Security.MovementCorrectionsEnabled) then
+            return
+        end
         if typeof(payload) == "table" and payload.Position and motor.Root then
             motor.Root.CFrame = CFrame.new(payload.Position)
             if payload.Velocity then

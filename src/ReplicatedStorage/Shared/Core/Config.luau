@@ -20,7 +20,10 @@ return {
     -- Slightly floatier than Roblox default gravity. Jump values are kept below parkour burst power
     -- so slide -> bullet jump remains the primary Warframe-like movement chain.
     Gravity = -93,
-    GroundStickVelocity = -9,
+    GroundStickVelocity = -2.5,
+    StableGroundStickVelocity = 0,
+    StableGroundMaxSpeed = 2,
+    FlatGroundNormalY = 0.985,
 
     -- Jump height formula: h = v^2 / (2g). 42 studs/s at 93g reaches ~9.5 studs.
     JumpVelocity = 44,
@@ -119,6 +122,9 @@ return {
     WallLatchDampTime = 0.08,
     WallLatchDetachPush = 8,
     WallHopFaceCameraTime = 0.22,
+    WallCollisionBlockMemory = false,
+    WallCollisionMinIntoSpeed = 1.5,
+    WallCollisionMinInputIntoWall = 0.12,
 
     OrientationSharpness = 22,
     MaxPlanarSpeed = 64,
@@ -174,6 +180,10 @@ return {
 },
 
     Security = {
+    -- Movement is fully client-authored while the Warframe controller is being tuned.
+    -- Keep all server/client correction hooks disabled so they cannot rubber-band the root.
+    AntiCheatEnabled = false,
+    MovementCorrectionsEnabled = false,
     ActionRateLimitPerSecond = 24,
     PositionReportMaxDistance = 35,
     MaxHorizontalSpeedSoft = 115,
@@ -199,6 +209,19 @@ return {
     -- Players do not physically block each other. The controller adds a custom thin capsule/oval
     -- soft collision so players can pass through but cannot comfortably occupy the exact same point.
     DisablePhysicalPlayerPlayerCollision = true,
+
+    -- Custom movement writes HumanoidRootPart velocity directly. Multiple colliding body
+    -- parts/accessories create friction/contact corrections that look like small rubber-bands.
+    -- Keep collision on the root only and make that collider low-friction.
+    RootOnlyCharacterCollision = true,
+    RootCanCollide = true,
+    DisableAccessoryCollision = true,
+    CharacterDensity = 1,
+    CharacterFriction = 0,
+    CharacterElasticity = 0,
+    CharacterFrictionWeight = 0,
+    CharacterElasticityWeight = 0,
+
     SoftPlayerCollisionEnabled = true,
     SoftPlayerRadius = 1.35,
     SoftPlayerVerticalHalfHeight = 3.75,
@@ -221,6 +244,7 @@ return {
 
     Debug = {
     Enabled = true,
+    AllowSafeZoneWeaponFireInStudio = true,
     LogsEnabled = false,
     DefaultChannelEnabled = false,
     ErrorRepeatCooldown = 1.5,

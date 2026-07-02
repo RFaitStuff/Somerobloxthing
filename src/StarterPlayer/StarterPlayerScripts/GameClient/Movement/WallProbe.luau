@@ -6,6 +6,37 @@ local Util = require(Shared:WaitForChild("Core"):WaitForChild("Util"))
 local WallProbe = {}
 WallProbe.__index = WallProbe
 
+
+local function findHumanoidModel(instance)
+    local node = instance
+    while node and node ~= workspace do
+        if node:IsA("Model") and node:FindFirstChildOfClass("Humanoid") then
+            return node
+        end
+        node = node.Parent
+    end
+    return nil
+end
+
+function WallProbe:ShouldIgnoreResult(result)
+    local instance = result and result.Instance
+    if not instance then return true end
+    local c = self.Controller
+    if c.Character and instance:IsDescendantOf(c.Character) then
+        return true
+    end
+
+    -- Player/NPC accessories and body parts should never count as parkour walls. The probe
+    -- was repeatedly latching/memorizing the local character's WhiteHood.Handle, which kept
+    -- wall=true even while idle and polluted movement decisions.
+    local humanoidModel = findHumanoidModel(instance)
+    if humanoidModel then
+        return true
+    end
+
+    return false
+end
+
 function WallProbe.new(controller)
     return setmetatable({
         Controller = controller,
@@ -48,23 +79,27 @@ function WallProbe:ScoreContact(result, dir, look, move)
     return bestApproach * 2 + looking * 0.65 + moving - result.Distance * 0.035
 end
 
-function WallProbe:ApplyHit(hit, look, dt)
+function WallProbe:ApplyHit(hit, look, dt, isMemory)
     local c = self.Controller
     local flatNormal = Util.SafeUnit(Vector3.new(hit.Normal.X, 0, hit.Normal.Z), Vector3.zAxis)
     local tangent = Util.SafeUnit(Vector3.new(-flatNormal.Z, 0, flatNormal.X), c:GetFlatForward())
     local right = c.Camera and c.Camera:GetRight() or Vector3.new(-c:GetFlatForward().Z, 0, c:GetFlatForward().X)
     local sideDot = right:Dot(-flatNormal)
     local approach = math.max(0, look.Unit:Dot(-hit.Normal))
+    isMemory = isMemory == true
 
     c.HasWall = true
     c.HasWallContact = true
-    c.HasWallAim = approach >= (Config.Movement.WallAimDotMin or Config.Movement.WallLookDotMin or 0.18)
+    c.HasWallAim = (not isMemory) and approach >= (Config.Movement.WallAimDotMin or Config.Movement.WallLookDotMin or 0.18)
     c.WallNormal = hit.Normal
     c.WallTangent = tangent
     c.WallApproach = approach
     c.WallContactSide = sideDot > 0.35 and "Right" or (sideDot < -0.35 and "Left" or "Front")
     c.LastWallNormal = hit.Normal
     c.LastWallNormalTimer = Config.Movement.WallRecontactAssistTime or 0.38
+    c.WallContactIsMemory = isMemory
+    c.WallContactFresh = not isMemory
+    c.WallHitDistance = hit.Distance
 
     self.ContactAge += dt or 0
     c.WallContactAge = self.ContactAge
@@ -81,6 +116,9 @@ function WallProbe:Update(dt)
     c.WallTangent = Vector3.zero
     c.WallApproach = 0
     c.WallContactSide = "None"
+    c.WallContactIsMemory = false
+    c.WallContactFresh = false
+    c.WallHitDistance = nil
     if not c.Root then return end
 
     local dirs, look, move = self:GetProbeDirections()
@@ -94,7 +132,7 @@ function WallProbe:Update(dt)
         for _, dir in ipairs(dirs) do
             if dir.Magnitude > 0.05 then
                 local result = Util.Spherecast(origin, Config.Movement.WallProbeRadius, dir.Unit * Config.Movement.WallProbeDistance, params)
-                if result then
+                if result and not self:ShouldIgnoreResult(result) then
                     local score = self:ScoreContact(result, dir, look, move)
                     if score and score > bestScore then
                         bestScore = score
@@ -106,19 +144,20 @@ function WallProbe:Update(dt)
     end
 
     if bestHit then
-        self:ApplyHit(bestHit, look, dt)
+        self:ApplyHit(bestHit, look, dt, false)
         return
     end
 
     self.ContactAge = 0
     c.WallContactAge = 0
     self.MemoryTime = math.max(0, self.MemoryTime - (dt or 0))
-    if self.MemoryTime > 0 and self.LastHit and self:IsValidWall(self.LastHit.Normal) then
+    if self.MemoryTime > 0 and self.LastHit and self:IsValidWall(self.LastHit.Normal) and not self:ShouldIgnoreResult(self.LastHit) then
         -- Memory keeps latch/hop transitions forgiving, but not aim-qualified unless the camera is still facing the wall.
-        self:ApplyHit(self.LastHit, look, 0)
-        c.HasWallAim = c.WallApproach >= (Config.Movement.WallAimDotMin or 0.18)
+        self:ApplyHit(self.LastHit, look, 0, true)
+        c.HasWallAim = false
     else
         self.LastHit = nil
+        self.MemoryTime = 0
     end
 end
 

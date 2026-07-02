@@ -199,6 +199,10 @@ function State:ApplyServerState(payload)
     if payload.EquippedWeaponId then self.EquippedWeaponId = payload.EquippedWeaponId end
     if payload.EquippedMeleeId then self.EquippedMeleeId = payload.EquippedMeleeId end
     if payload.CanAimGlide ~= nil then self.CanAimGlide = payload.CanAimGlide == true end
+    if payload.DevMode ~= nil then self.DevMode = payload.DevMode end
+    if payload.LocationId ~= nil then self.LocationId = payload.LocationId end
+    if payload.SafeZone ~= nil then self.SafeZone = payload.SafeZone == true end
+    if payload.TrainingRange ~= nil then self.TrainingRange = payload.TrainingRange == true end
 end
 
 function State:ApplySettings(settings)

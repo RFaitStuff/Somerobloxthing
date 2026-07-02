@@ -41,6 +41,7 @@ function TestUI.new(state, input, camera)
         SelectedMeleeVariant = "Light",
         Collapsed = {},
         EnemyAIPaused = false,
+        ResetConfirmUntil = 0,
     }, TestUI)
 end
 
@@ -52,6 +53,8 @@ function TestUI:MakeButton(parent, text, callback)
     button.TextColor3 = Color3.fromRGB(240, 245, 250)
     button.Font = Enum.Font.GothamMedium
     button.TextSize = 12
+    button.TextWrapped = true
+    button.TextXAlignment = Enum.TextXAlignment.Center
     button.Text = text
     button.Parent = parent
     button.MouseButton1Click:Connect(callback)
@@ -70,6 +73,39 @@ function TestUI:AddTextLine(parent, text)
     label.TextTruncate = Enum.TextTruncate.AtEnd
     label.Parent = parent
     return label
+end
+
+function TestUI:AddSectionNote(parent, title, text)
+    local box = Instance.new("Frame")
+    box.Size = UDim2.new(1, -8, 0, 54)
+    box.BackgroundColor3 = Color3.fromRGB(22, 28, 36)
+    box.BorderSizePixel = 0
+    box.Parent = parent
+
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, -16, 0, 20)
+    titleLabel.Position = UDim2.fromOffset(8, 5)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.TextColor3 = Color3.fromRGB(150, 215, 255)
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.TextSize = 12
+    titleLabel.Text = title
+    titleLabel.Parent = box
+
+    local body = Instance.new("TextLabel")
+    body.Size = UDim2.new(1, -16, 0, 24)
+    body.Position = UDim2.fromOffset(8, 25)
+    body.BackgroundTransparency = 1
+    body.TextXAlignment = Enum.TextXAlignment.Left
+    body.TextYAlignment = Enum.TextYAlignment.Top
+    body.TextColor3 = Color3.fromRGB(205, 214, 226)
+    body.Font = Enum.Font.Gotham
+    body.TextSize = 11
+    body.TextWrapped = true
+    body.Text = text
+    body.Parent = box
+    return box
 end
 
 function TestUI:Header(parent, text)
@@ -162,6 +198,9 @@ function TestUI:BuildGui()
     gui.Name = "GameSystemsTestMenu"
     gui.ResetOnSpawn = false
     gui.Enabled = false
+    gui.IgnoreGuiInset = true
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.DisplayOrder = 40
     gui.Parent = playerGui
     self.Gui = gui
 
@@ -171,6 +210,10 @@ function TestUI:BuildGui()
     panel.BackgroundColor3 = Color3.fromRGB(16, 20, 26)
     panel.BorderSizePixel = 0
     panel.Parent = gui
+
+    local panelCorner = Instance.new("UICorner")
+    panelCorner.CornerRadius = UDim.new(0, 8)
+    panelCorner.Parent = panel
 
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, -16, 0, 32)
@@ -188,6 +231,9 @@ function TestUI:BuildGui()
     summary.Position = UDim2.fromOffset(8, 40)
     summary.BackgroundColor3 = Color3.fromRGB(10, 13, 18)
     summary.BorderSizePixel = 0
+    local summaryCorner = Instance.new("UICorner")
+    summaryCorner.CornerRadius = UDim.new(0, 6)
+    summaryCorner.Parent = summary
     summary.TextXAlignment = Enum.TextXAlignment.Left
     summary.TextYAlignment = Enum.TextYAlignment.Top
     summary.TextColor3 = Color3.fromRGB(220, 230, 238)
@@ -208,6 +254,13 @@ function TestUI:BuildGui()
     scroll.Parent = panel
     self.Body = scroll
 
+    local padding = Instance.new("UIPadding")
+    padding.PaddingTop = UDim.new(0, 2)
+    padding.PaddingBottom = UDim.new(0, 8)
+    padding.PaddingLeft = UDim.new(0, 2)
+    padding.PaddingRight = UDim.new(0, 2)
+    padding.Parent = scroll
+
     local layout = Instance.new("UIListLayout")
     layout.Padding = UDim.new(0, 3)
     layout.SortOrder = Enum.SortOrder.LayoutOrder
@@ -218,7 +271,7 @@ end
 
 function TestUI:ClearBody()
     for _, child in ipairs(self.Body:GetChildren()) do
-        if not child:IsA("UIListLayout") then child:Destroy() end
+        if not child:IsA("UIListLayout") and not child:IsA("UIPadding") then child:Destroy() end
     end
 end
 
@@ -340,7 +393,8 @@ function TestUI:RefreshSummary()
     local frameDef = profile and Frames.Get(profile.SelectedFrameId)
     local mission = self.State.Mission
     local matchmaking = self.State.Matchmaking
-    local weaponId = profile and profile.Equipped.ActiveWeapon or "None"
+    local equipped = profile and profile.Equipped or nil
+    local weaponId = equipped and equipped.ActiveWeapon or self.State.EquippedWeaponId or "None"
     local weaponRuntime = self.State.WeaponRuntime[weaponId] or {}
     local weaponState = profile and profile.Weapons and profile.Weapons[weaponId] or {}
     local materials = profile and profile.Inventory and profile.Inventory.Materials or {}
@@ -350,6 +404,7 @@ function TestUI:RefreshSummary()
         if (runtime.CooldownEnds or 0) > now then cooldownCount += 1 end
     end
     self.Summary.Text = table.concat({
+        string.format("Dev: %s | Location: %s | Safe:%s Train:%s", tostring(self.State.DevMode or "NormalPlay"), tostring(self.State.LocationId or "?"), tostring(self.State.SafeZone), tostring(self.State.TrainingRange)),
         string.format("Frame: %s L%s | %s", profile and profile.SelectedFrameId or "None", tostring(frameState.Level or 1), frameDef and frameDef.Role or "No role"),
         string.format("Mastery: %s XP %s | CE %s", tostring(profile and profile.MasteryRank or 0), tostring(profile and profile.MasteryXP or 0), self:FormatMap(frameState.CE, "None")),
         string.format("Health %.0f/%.0f | Shield %.0f/%.0f | Mana %.0f/%.0f", res.Health or 0, stats.Health or 0, res.Shield or 0, stats.Shield or 0, res.Mana or 0, stats.Mana or 0),
@@ -368,6 +423,41 @@ function TestUI:Refresh()
     self:ClearBody()
 
     local profile = self.State.Profile
+    if self:IsOpen("Development Modes") then
+        self:AddSectionNote(self.Body, "Mode Shortcuts", "Switch between normal save data, a no-restriction sandbox, fresh progress, or a story checkpoint without editing DataStores by hand.")
+        self:MakeButton(self.Body, "Play Normally - use saved progress", function()
+            self.ProfileRequestRemote:FireServer({ Action = "ApplyDevMode", Mode = "NormalPlay" })
+        end)
+        self:MakeButton(self.Body, "Dev Space - all gear, all locations, weapons enabled", function()
+            self.ProfileRequestRemote:FireServer({ Action = "ApplyDevMode", Mode = "DevSpace" })
+        end)
+
+        local confirmReset = os.clock() < (self.ResetConfirmUntil or 0)
+        self:MakeButton(self.Body, confirmReset and "Confirm Reset Progress" or "Reset Progress to New Player", function()
+            if os.clock() < (self.ResetConfirmUntil or 0) then
+                self.ResetConfirmUntil = 0
+                self.ProfileRequestRemote:FireServer({ Action = "ApplyDevMode", Mode = "ResetProgress" })
+            else
+                self.ResetConfirmUntil = os.clock() + 4
+                self:Refresh()
+            end
+        end)
+
+        self:AddSectionNote(self.Body, "Start At", "Applies story/location unlocks for the selected checkpoint, then moves the player to a safe test spawn.")
+        self:MakeButton(self.Body, "Moon - beginning", function()
+            self.ProfileRequestRemote:FireServer({ Action = "ApplyDevMode", Mode = "StartAt", StartId = "MoonStart" })
+        end)
+        self:MakeButton(self.Body, "Earth unlocked", function()
+            self.ProfileRequestRemote:FireServer({ Action = "ApplyDevMode", Mode = "StartAt", StartId = "EarthStart" })
+        end)
+        self:MakeButton(self.Body, "Hub unlocked", function()
+            self.ProfileRequestRemote:FireServer({ Action = "ApplyDevMode", Mode = "StartAt", StartId = "HubStart" })
+        end)
+        self:MakeButton(self.Body, "Mars unlocked", function()
+            self.ProfileRequestRemote:FireServer({ Action = "ApplyDevMode", Mode = "StartAt", StartId = "MarsStart" })
+        end)
+    end
+
     if self:IsOpen("Runtime Tuning") then
         self:AddSelectButtons(self.Body, "Frame", self:SortedKeys(Frames.ById), self.SelectedFrameId, function(id) self.SelectedFrameId = id end)
         local frame = Frames.Get(self.SelectedFrameId)

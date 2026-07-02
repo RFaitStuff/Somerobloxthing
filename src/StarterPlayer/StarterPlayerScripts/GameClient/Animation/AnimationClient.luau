@@ -70,6 +70,18 @@ local LOOPED = {
     Fall = true,
 }
 
+-- Static pose tracks should not loop normally. Looping a one-pose/short KeyframeSequence
+-- causes a visible restart pop that looks like character bouncing/stuttering. These tracks
+-- are played at speed 0 and kept alive through weight changes instead.
+local HELD_POSES = {
+    WeaponRelaxed = true,
+    WeaponAim = true,
+    AimGlide = true,
+    AimGlideForward = true,
+    AimGlideBackward = true,
+    AimGlideTurn = true,
+}
+
 local ACTION_PRIORITY = {
     Block = Enum.AnimationPriority.Action,
     Hit1 = Enum.AnimationPriority.Action,
@@ -98,6 +110,81 @@ local ACTION_PRIORITY = {
     WeaponAim = Enum.AnimationPriority.Action,
 }
 
+
+local TRANSITION = {
+    LoopFade = 0.18,
+    AimGlideFade = 0.2,
+    ActionFade = 0.075,
+    QuickActionFade = 0.045,
+    WeaponFade = 0.16,
+    HolsterFade = 0.08,
+}
+
+local ACTION_SPEED = {
+    DoubleJump = 1.45,
+    BulletJump = 1.45,
+    RollForward = 1.12,
+    RollBackward = 1.12,
+    RollLeft = 1.12,
+    RollRight = 1.12,
+    DodgeForward = 1.18,
+    DodgeBackward = 1.18,
+    DodgeLeft = 1.18,
+    DodgeRight = 1.18,
+    AirDodgeForward = 1.18,
+    AirDodgeBackward = 1.18,
+    AirDodgeLeft = 1.18,
+    AirDodgeRight = 1.18,
+}
+
+local FAST_INTERRUPT_FROM = {
+    DoubleJump = true,
+    BulletJump = true,
+}
+
+local FAST_INTERRUPT_TO = {
+    RollForward = true,
+    RollBackward = true,
+    RollLeft = true,
+    RollRight = true,
+    DodgeForward = true,
+    DodgeBackward = true,
+    DodgeLeft = true,
+    DodgeRight = true,
+    AirDodgeForward = true,
+    AirDodgeBackward = true,
+    AirDodgeLeft = true,
+    AirDodgeRight = true,
+    SlideStart = true,
+}
+
+local PARKOUR_ACTIONS = {
+    BulletJump = true,
+    DoubleJump = true,
+    WallHopVertical = true,
+    WallHopHorizontal = true,
+    RollForward = true,
+    RollBackward = true,
+    RollLeft = true,
+    RollRight = true,
+    DodgeForward = true,
+    DodgeBackward = true,
+    DodgeLeft = true,
+    DodgeRight = true,
+    AirDodgeForward = true,
+    AirDodgeBackward = true,
+    AirDodgeLeft = true,
+    AirDodgeRight = true,
+    SlideStart = true,
+}
+
+local LOCOMOTION_ONLY_MODES = {
+    Grounded = true,
+    Sprinting = true,
+    Crouching = true,
+    Idle = true,
+}
+
 local MOVEMENT_PRIORITY = {
     Idle = Enum.AnimationPriority.Idle,
     Walk = Enum.AnimationPriority.Movement,
@@ -113,6 +200,31 @@ local MOVEMENT_PRIORITY = {
     AimGlideTurn = Enum.AnimationPriority.Action,
     WallLatch = Enum.AnimationPriority.Action,
 }
+
+
+local WEAPON_POSE_ALIASES = {
+    WeaponRelaxed = true,
+    WeaponAim = true,
+}
+
+local WEAPON_POSE_ALLOWED = {
+    UpperTorso = "YawOnly",
+    RightUpperArm = "Full",
+    RightLowerArm = "Full",
+    RightHand = "Full",
+    LeftUpperArm = "Full",
+    LeftLowerArm = "Full",
+    LeftHand = "Full",
+}
+
+local function keepOnlyYaw(cframe)
+    local _, yaw, _ = cframe:ToOrientation()
+    return CFrame.Angles(0, yaw, 0)
+end
+
+local function isPose(instance)
+    return instance and instance:IsA("Pose")
+end
 
 local Tracks = {}
 Tracks.__index = Tracks
@@ -170,20 +282,99 @@ function Tracks:MakeFallbackAnimation(alias, sourceName)
     return anim
 end
 
+
+function Tracks:SanitizeWeaponPoseSequence(sequence, alias)
+    local clone = sequence:Clone()
+    clone.Name = alias .. "UpperBodyOnly"
+
+    local stats = {
+        Allowed = 0,
+        Stripped = 0,
+        YawOnly = 0,
+        ArmPoses = 0,
+    }
+
+    local function sanitizePose(pose, parent)
+        for _, child in ipairs(pose:GetChildren()) do
+            if isPose(child) then
+                sanitizePose(child, pose)
+            end
+        end
+
+        local rule = WEAPON_POSE_ALLOWED[pose.Name]
+        if rule == "Full" then
+            stats.Allowed += 1
+            if string.find(pose.Name, "Arm") or string.find(pose.Name, "Hand") then
+                stats.ArmPoses += 1
+            end
+            return true
+        elseif rule == "YawOnly" then
+            pose.CFrame = keepOnlyYaw(pose.CFrame)
+            stats.Allowed += 1
+            stats.YawOnly += 1
+            return true
+        end
+
+        -- This pose would make the rifle layer override the locomotion body. Preserve any
+        -- already-sanitized allowed descendants by moving them up, then remove this pose.
+        for _, child in ipairs(pose:GetChildren()) do
+            if isPose(child) then
+                child.Parent = parent
+            end
+        end
+        stats.Stripped += 1
+        pose:Destroy()
+        return false
+    end
+
+    for _, keyframe in ipairs(clone:GetChildren()) do
+        if keyframe:IsA("Keyframe") then
+            for _, child in ipairs(keyframe:GetChildren()) do
+                if isPose(child) then
+                    sanitizePose(child, keyframe)
+                end
+            end
+        end
+    end
+
+    Debug.Log(
+        Debug.Channels.Animation,
+        "%s weapon pose sanitized: kept=%d yawOnly=%d stripped=%d armPoses=%d",
+        alias,
+        stats.Allowed,
+        stats.YawOnly,
+        stats.Stripped,
+        stats.ArmPoses
+    )
+
+    if stats.ArmPoses == 0 then
+        table.insert(self.Failed, alias .. " sanitized weapon pose has no arm/hand poses")
+    end
+
+    return clone
+end
+
 function Tracks:MakeAnimationFromSource(alias, source)
     if source and source:IsA("Animation") and self:GetAnimationId(source) then
         return source, source.AnimationId
     end
 
     if source and source:IsA("KeyframeSequence") then
+        local sequenceToRegister = source
+        local sourceLabel = source:GetFullName()
+        if WEAPON_POSE_ALIASES[alias] then
+            sequenceToRegister = self:SanitizeWeaponPoseSequence(source, alias)
+            sourceLabel = sourceLabel .. " (sanitized upper body weapon pose)"
+        end
+
         local ok, animationId = pcall(function()
-            return KeyframeSequenceProvider:RegisterKeyframeSequence(source)
+            return KeyframeSequenceProvider:RegisterKeyframeSequence(sequenceToRegister)
         end)
         if ok and type(animationId) == "string" and animationId ~= "" then
             local anim = Instance.new("Animation")
             anim.Name = alias .. "FromSequence"
             anim.AnimationId = animationId
-            return anim, source:GetFullName()
+            return anim, sourceLabel
         end
         table.insert(self.Failed, alias .. " failed RegisterKeyframeSequence")
     end
@@ -368,24 +559,51 @@ function Tracks:PlayLoop(name, fade)
     if not track then return end
     if self.CurrentLoop == track and track.IsPlaying then return end
     if self.CurrentLoop then
-        self.CurrentLoop:Stop(fade or 0.14)
+        self.CurrentLoop:Stop(fade or TRANSITION.LoopFade)
     end
     self.CurrentLoop = track
     self.CurrentLoopName = name
-    track:Play(fade or 0.14)
+    track:Play(fade or TRANSITION.LoopFade)
 end
-function Tracks:EnsureWeightedLoop(name, targetWeight, fade)
+function Tracks:EnsureWeightedPose(name, targetWeight, fade)
     local track = self.Tracks[name]
     if not track then return end
-    fade = fade or 0.14
+    fade = fade or TRANSITION.LoopFade
+    if not track.IsPlaying then
+        -- Speed 0 keeps static/held poses from restarting every cycle.
+        track:Play(fade, 0, 0)
+        pcall(function()
+            track.TimePosition = 0
+        end)
+    else
+        pcall(function()
+            track:AdjustSpeed(0)
+        end)
+    end
+    track:AdjustWeight(math.clamp(targetWeight or 0, 0, 1), fade)
+end
+
+function Tracks:EnsureWeightedLoop(name, targetWeight, fade)
+    if HELD_POSES[name] then
+        self:EnsureWeightedPose(name, targetWeight, fade)
+        return
+    end
+
+    local track = self.Tracks[name]
+    if not track then return end
+    fade = fade or TRANSITION.LoopFade
     if not track.IsPlaying then
         track:Play(fade, 0, 1)
+    else
+        pcall(function()
+            track:AdjustSpeed(1)
+        end)
     end
     track:AdjustWeight(math.clamp(targetWeight or 0, 0, 1), fade)
 end
 
 function Tracks:StopAimGlideBlend(fade)
-    fade = fade or 0.12
+    fade = fade or TRANSITION.AimGlideFade
     for _, name in ipairs({ "AimGlide", "AimGlideForward", "AimGlideBackward", "AimGlideTurn" }) do
         local track = self.Tracks[name]
         if track and track.IsPlaying then
@@ -399,7 +617,7 @@ function Tracks:StopAimGlideBlend(fade)
 end
 
 function Tracks:PlayAimGlideBlend(params, fade)
-    fade = fade or 0.16
+    fade = fade or TRANSITION.AimGlideFade
     local forwardWeight = 1
     local backwardWeight = 0
     local turnWeight = 0
@@ -429,36 +647,92 @@ function Tracks:PlayAimGlideBlend(params, fade)
     self.AimGlideBlendTurn = turnWeight
 end
 
+function Tracks:GetActionSpeed(name)
+    return ACTION_SPEED[name] or 1
+end
+
+function Tracks:FastFinishCurrentAction(nextName)
+    if not self.CurrentAction or not self.CurrentAction.IsPlaying then return end
+    if not FAST_INTERRUPT_FROM[self.CurrentActionName] or not FAST_INTERRUPT_TO[nextName] then return end
+
+    -- Double jump/bullet jump should not hang over dodge/roll. Push it near its recovery
+    -- pose, speed it up briefly, then crossfade into the new action. This keeps the
+    -- transition readable without making dodge wait for the full parkour animation.
+    pcall(function()
+        local length = self.CurrentAction.Length
+        if length and length > 0 then
+            self.CurrentAction.TimePosition = math.max(self.CurrentAction.TimePosition, length * 0.72)
+        end
+        self.CurrentAction:AdjustSpeed(2.35)
+    end)
+end
+
 function Tracks:PlayAction(name, fade)
     local track = self.Tracks[name]
     if not track then return end
-    if self.CurrentAction == track and track.IsPlaying then return end
-    if self.CurrentAction and self.CurrentAction ~= track then
-        self.CurrentAction:Stop(fade or 0.08)
+    fade = fade or TRANSITION.ActionFade
+
+    if self.CurrentAction == track and track.IsPlaying then
+        pcall(function()
+            track:AdjustSpeed(self:GetActionSpeed(name))
+        end)
+        return
     end
+
+    if self.CurrentAction and self.CurrentAction ~= track then
+        self:FastFinishCurrentAction(name)
+        local stopFade = (FAST_INTERRUPT_FROM[self.CurrentActionName] and FAST_INTERRUPT_TO[name]) and TRANSITION.QuickActionFade or fade
+        self.CurrentAction:Stop(stopFade)
+    end
+
     self.CurrentAction = track
     self.CurrentActionName = name
-    track:Play(fade or 0.08)
+    track:Play(fade, 1, self:GetActionSpeed(name))
+end
+
+function Tracks:StopCurrentAction(fade)
+    if self.CurrentAction then
+        pcall(function()
+            self.CurrentAction:Stop(fade or TRANSITION.ActionFade)
+        end)
+    end
+    self.CurrentAction = nil
+    self.CurrentActionName = "None"
+end
+
+function Tracks:ClearFinishedAction()
+    if self.CurrentAction and not self.CurrentAction.IsPlaying then
+        self.CurrentAction = nil
+        self.CurrentActionName = "None"
+    end
+end
+
+function Tracks:StopParkourAction(fade)
+    self:ClearFinishedAction()
+    if self.CurrentActionName ~= "None" and PARKOUR_ACTIONS[self.CurrentActionName] then
+        self:StopCurrentAction(fade or TRANSITION.QuickActionFade)
+    end
 end
 
 function Tracks:PlayWeaponPose(name, fade)
     local track = self.Tracks[name]
     if not track then return end
+    fade = fade or TRANSITION.WeaponFade
     if self.CurrentWeapon == track and track.IsPlaying then
-        track:AdjustWeight(1, fade or 0.12)
+        self:EnsureWeightedPose(name, 1, fade)
         return
     end
     if self.CurrentWeapon and self.CurrentWeapon ~= track then
-        self.CurrentWeapon:Stop(fade or 0.12)
+        self.CurrentWeapon:Stop(fade)
     end
     self.CurrentWeapon = track
     self.CurrentWeaponName = name
-    track:Play(fade or 0.12, 1, 1)
+    self:EnsureWeightedPose(name, 1, fade)
 end
 
 function Tracks:StopWeaponPose(fade)
     if self.CurrentWeapon then
-        self.CurrentWeapon:Stop(fade or 0.12)
+        self.CurrentWeapon:Stop(fade or TRANSITION.WeaponFade)
     end
     self.CurrentWeapon = nil
     self.CurrentWeaponName = "None"
@@ -531,44 +805,52 @@ end
 function Tracks:PlayMode(mode, params)
     local speed = params and params.Speed or 0
     local moving = speed > 2
+    self:ClearFinishedAction()
 
     if mode ~= "Gliding" and mode ~= "AimGliding" then
-        self:StopAimGlideBlend(0.12)
+        self:StopAimGlideBlend(TRANSITION.AimGlideFade)
+    end
+
+    -- One-shot parkour actions should not keep full-body Action priority over unrelated
+    -- locomotion/aim-glide states. This was visible in logs as DoubleJump or AirDodgeForward
+    -- staying active over Sprint/Fall/AimGlide, making transitions look like stutter.
+    if mode == "Gliding" or mode == "AimGliding" or LOCOMOTION_ONLY_MODES[mode] then
+        self:StopParkourAction(TRANSITION.QuickActionFade)
     end
 
     if mode == "Sliding" then
         if os.clock() < (self.SlideLoopDelayUntil or 0) then
             return
         end
-        self:PlayLoop("SlideLoop", 0.1)
+        self:PlayLoop("SlideLoop", 0.14)
     elseif mode == "BulletJumping" then
-        self:PlayLoop("Fall", 0.1)
+        self:PlayLoop("Fall", 0.14)
     elseif mode == "Gliding" or mode == "AimGliding" then
-        self:PlayAimGlideBlend(params, 0.18)
+        self:PlayAimGlideBlend(params, TRANSITION.AimGlideFade)
     elseif mode == "WallLatched" then
-        self:PlayLoop("WallLatch", 0.08)
+        self:PlayLoop("WallLatch", 0.12)
     elseif mode == "WallHopping" then
         -- One-shot wall hop action is started by PlayParkour; keep fall/air loop underneath.
-        self:PlayLoop("Fall", 0.12)
+        self:PlayLoop("Fall", TRANSITION.LoopFade)
     elseif mode == "Rolling" then
-        self:PlayAction(params and params.RollDirection or "RollForward", 0.05)
+        self:PlayAction(params and params.RollDirection or "RollForward", TRANSITION.QuickActionFade)
     elseif mode == "AirDodging" then
-        self:PlayAction(params and params.AirDodgeDirection or "AirDodgeForward", 0.05)
+        self:PlayAction(params and params.AirDodgeDirection or "AirDodgeForward", TRANSITION.QuickActionFade)
     elseif mode == "Crouching" then
-        self:PlayLoop(moving and "CrouchWalk" or "Crouch", 0.12)
+        self:PlayLoop(moving and "CrouchWalk" or "Crouch", TRANSITION.LoopFade)
         self:AdjustLoopSpeed(speed, 10)
     elseif mode == "Grounded" then
-        self:PlayLoop(moving and "Walk" or "Idle", 0.14)
+        self:PlayLoop(moving and "Walk" or "Idle", TRANSITION.LoopFade)
         self:AdjustLoopSpeed(speed, 16)
     elseif mode == "Sprinting" then
-        self:PlayLoop(moving and "Sprint" or "Idle", 0.12)
+        self:PlayLoop(moving and "Sprint" or "Idle", TRANSITION.LoopFade)
         self:AdjustLoopSpeed(speed, 22)
     elseif mode == "Airborne" then
-        self:PlayLoop("Fall", 0.12)
+        self:PlayLoop("Fall", TRANSITION.LoopFade)
     elseif mode == "MeleeLocked" then
         -- Keep the current locomotion loop under melee actions.
     elseif mode == "Idle" then
-        self:PlayLoop("Idle", 0.16)
+        self:PlayLoop("Idle", TRANSITION.LoopFade)
     end
 end
 
@@ -580,7 +862,7 @@ function Tracks:PlayStatus(statusName)
         [StatusTypes.GetUp] = "Hit4",
     }
     local animation = map[statusName]
-    if animation then self:PlayAction(animation, 0.08) end
+    if animation then self:PlayAction(animation, TRANSITION.ActionFade) end
 end
 
 function Tracks:PlayMelee(animationName)
@@ -622,7 +904,7 @@ function Tracks:PlayMelee(animationName)
         Slide = "Hit3",
         Slam = "Hit4",
     }
-    self:PlayAction(map[animationName] or animationName, 0.06)
+    self:PlayAction(map[animationName] or animationName, TRANSITION.ActionFade)
 end
 
 local Params = {}
@@ -763,9 +1045,9 @@ function AnimationClient:OnModeChanged(mode)
     if mode == "Sliding" then
         self:PlayParkour("SlideStart")
     elseif mode == "WallLatched" then
-        self.Tracks:PlayLoop("WallLatch", 0.08)
+        self.Tracks:PlayLoop("WallLatch", 0.12)
     elseif mode == "AimGliding" then
-        self.Tracks:PlayAimGlideBlend(self.Params, 0.18)
+        self.Tracks:PlayAimGlideBlend(self.Params, TRANSITION.AimGlideFade)
     end
 end
 
@@ -779,13 +1061,17 @@ function AnimationClient:PlayMelee(animationName)
 end
 
 function AnimationClient:PlayParkour(animationName)
+    if animationName ~= "DoubleJump" and animationName ~= "BulletJump" then
+        self.Tracks:StopParkourAction(TRANSITION.QuickActionFade)
+    end
     if animationName == "SlideStart" then
-        self.Tracks.SlideLoopDelayUntil = os.clock() + 0.18
-    elseif animationName == "DoubleJump" then
-        self.HolsterUntil = os.clock() + 0.42
+        self.Tracks.SlideLoopDelayUntil = os.clock() + 0.16
+    elseif animationName == "DoubleJump" or animationName == "BulletJump" then
+        self.HolsterUntil = os.clock() + 0.34
         self:SetWeaponAttachMode("BackHolster")
     end
-    self.Tracks:PlayAction(animationName, 0.055)
+    local fade = (animationName == "DoubleJump" or animationName == "BulletJump") and TRANSITION.ActionFade or TRANSITION.QuickActionFade
+    self.Tracks:PlayAction(animationName, fade)
 end
 
 function AnimationClient:SetWeaponAttachMode(mode)
@@ -802,16 +1088,24 @@ end
 
 function AnimationClient:UpdateWeaponPose(dt, motor)
     if not self:IsRangedWeaponEquipped() then
-        self.Tracks:StopWeaponPose(0.12)
+        self.Tracks:StopWeaponPose(TRANSITION.WeaponFade)
         return
     end
 
     local activeAim = self.Params.IsAiming or self.Params.IsShooting
-    if activeAim or os.clock() >= (self.HolsterUntil or 0) then
+    local holstered = os.clock() < (self.HolsterUntil or 0)
+    if holstered and not activeAim then
+        self:SetWeaponAttachMode("BackHolster")
+        self.Tracks:StopWeaponPose(TRANSITION.HolsterFade)
+        self.Tracks:ResetProceduralAim()
+        return
+    end
+
+    if activeAim or not holstered then
         self:SetWeaponAttachMode("RightHand")
     end
 
-    self.Tracks:PlayWeaponPose(activeAim and "WeaponAim" or "WeaponRelaxed", 0.14)
+    self.Tracks:PlayWeaponPose(activeAim and "WeaponAim" or "WeaponRelaxed", TRANSITION.WeaponFade)
     self.Tracks:ApplyProceduralAim(motor, activeAim, dt)
 end
 
@@ -827,11 +1121,13 @@ function AnimationClient:DebugPlayAnimation(alias)
     if alias == "Crouch_Idle" then alias = "Crouch" end
 
     if alias == "WeaponRelaxed" or alias == "WeaponAim" then
-        self.Tracks:PlayWeaponPose(alias, 0.08)
+        self.Tracks:PlayWeaponPose(alias, TRANSITION.ActionFade)
+    elseif HELD_POSES[alias] then
+        self.Tracks:EnsureWeightedPose(alias, 1, TRANSITION.ActionFade)
     elseif LOOPED[alias] then
-        self.Tracks:PlayLoop(alias, 0.08)
+        self.Tracks:PlayLoop(alias, TRANSITION.ActionFade)
     else
-        self.Tracks:PlayAction(alias, 0.08)
+        self.Tracks:PlayAction(alias, TRANSITION.ActionFade)
     end
 end
 

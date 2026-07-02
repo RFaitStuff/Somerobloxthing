@@ -199,9 +199,14 @@ function Kinematic:Update(dt)
     self.StateMachine:HandleTransitions(dt)
     self.VelocityMotor:Integrate(dt)
     self.SoftCollision:Update(dt)
-    self.VelocityMotor:CommitVelocity()
+
+    -- Anything that writes CFrame or humanoid state must happen before the final velocity write.
+    -- Otherwise Roblox can partially discard the AssemblyLinearVelocity commit during the same
+    -- simulation step, which shows up as commit/vAsm mismatch and forward rubber-band stutter.
     self.Orientation:Update(dt)
     self.HumanoidAdapter:Update(dt)
+    self.VelocityMotor:CommitVelocity()
+
     if self.Animation then self.Animation:Update(dt, self) end
 end
 

@@ -1,8 +1,10 @@
 --!nonstrict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Weapons = require(Shared:WaitForChild("Data"):WaitForChild("Combat"):WaitForChild("Weapons"))
 local WeaponVisuals = require(Shared:WaitForChild("Data"):WaitForChild("Combat"):WaitForChild("WeaponVisuals"))
+local Config = require(Shared:WaitForChild("Core"):WaitForChild("Config"))
 local Net = require(Shared:WaitForChild("Core"):WaitForChild("Net"))
 local Util = require(Shared:WaitForChild("Core"):WaitForChild("Util"))
 local ActionLocks = require(script.Parent.Parent:WaitForChild("Core"):WaitForChild("ActionLocks"))
@@ -86,7 +88,45 @@ function WeaponService:GetCharacterWeapon(character)
     return nil
 end
 
-function WeaponService:PrepareWeaponModel(model)
+function WeaponService:GetMarker(model, markerName)
+    if not model or type(markerName) ~= "string" then return nil end
+    return model:FindFirstChild(markerName, true)
+end
+
+function WeaponService:GetMarkerPartAndCFrame(model, markerName)
+    local marker = self:GetMarker(model, markerName)
+    if marker and marker:IsA("BasePart") then
+        return marker, CFrame.identity, marker
+    end
+    if marker and marker:IsA("Attachment") and marker.Parent and marker.Parent:IsA("BasePart") then
+        return marker.Parent, marker.CFrame, marker
+    end
+    return nil, nil, marker
+end
+
+function WeaponService:GetMainHandlePartAndC1(model, config)
+    return self:GetMarkerPartAndCFrame(model, config and config.MainHandle or "HandleRight")
+end
+
+function WeaponService:WeldWeaponPartsToHandle(model, handlePart)
+    if not model or not handlePart or not handlePart:IsA("BasePart") then return end
+    for _, descendant in ipairs(model:GetDescendants()) do
+        if descendant:IsA("WeldConstraint") and descendant.Name == "ControllerWeaponWeld" then
+            descendant:Destroy()
+        end
+    end
+    for _, descendant in ipairs(model:GetDescendants()) do
+        if descendant:IsA("BasePart") and descendant ~= handlePart then
+            local weld = Instance.new("WeldConstraint")
+            weld.Name = "ControllerWeaponWeld"
+            weld.Part0 = handlePart
+            weld.Part1 = descendant
+            weld.Parent = handlePart
+        end
+    end
+end
+
+function WeaponService:PrepareWeaponModel(model, handlePart)
     for _, descendant in ipairs(model:GetDescendants()) do
         if descendant:IsA("BasePart") then
             descendant.Anchored = false
@@ -95,6 +135,10 @@ function WeaponService:PrepareWeaponModel(model)
             descendant.CanQuery = false
             descendant.Massless = true
         end
+    end
+    if handlePart then
+        model.PrimaryPart = handlePart
+        self:WeldWeaponPartsToHandle(model, handlePart)
     end
 end
 
@@ -132,11 +176,31 @@ function WeaponService:CreateFallbackWeaponModel(weaponName)
     return model
 end
 
-function WeaponService:ClearWeaponMotor(model)
-    if not model then return end
-    for _, descendant in ipairs(model:GetDescendants()) do
+function WeaponService:ResolveWeaponSource(config, weaponId)
+    local source = config and self:ResolvePath(config.ModelPath)
+    if source and source:IsA("Model") then return source, config end
+    if source then warn(string.format("[WeaponService] Weapon path for %s is %s, expected Model", tostring(weaponId), source.ClassName)) end
+
+    local rifleConfig = WeaponVisuals.Get(WeaponVisuals.DefaultWeaponId or "Rifle")
+    local rifleSource = rifleConfig and self:ResolvePath(rifleConfig.ModelPath)
+    if rifleSource and rifleSource:IsA("Model") then
+        warn(string.format("[WeaponService] Missing weapon model for %s; using Rifle model fallback", tostring(weaponId)))
+        return rifleSource, rifleConfig or config
+    end
+
+    if rifleSource then warn(string.format("[WeaponService] Rifle fallback is %s, expected Model", rifleSource.ClassName)) end
+    warn(string.format("[WeaponService] Missing weapon model for %s and Rifle fallback; using generated fallback", tostring(weaponId)))
+    return nil, config or rifleConfig
+end
+
+function WeaponService:ClearWeaponMotor(character, weaponModel)
+    if not character then return end
+    for _, descendant in ipairs(character:GetDescendants()) do
         if descendant:IsA("Motor6D") and descendant.Name == "ControllerWeaponMotor" then
-            descendant:Destroy()
+            local part1 = descendant.Part1
+            if not weaponModel or not part1 or part1:IsDescendantOf(weaponModel) then
+                descendant:Destroy()
+            end
         end
     end
 end
@@ -152,18 +216,19 @@ end
 function WeaponService:AttachWeaponToRightHand(character, weaponModel, config)
     if not character or not weaponModel or not config then return false end
     local hand = self:GetRightHand(character)
-    local handle = weaponModel:FindFirstChild(config.MainHandle or "HandleRight", true)
-    if not hand or not handle or not hand:IsA("BasePart") or not handle:IsA("BasePart") then
+    local handlePart, handleC1, marker = self:GetMainHandlePartAndC1(weaponModel, config)
+    if not hand or not hand:IsA("BasePart") or not handlePart or not handlePart:IsA("BasePart") then
+        warn(string.format("[WeaponService] Cannot attach %s to right hand. Handle marker %s is %s.", tostring(config.WeaponName), tostring(config.MainHandle or "HandleRight"), marker and marker.ClassName or "missing"))
         return false
     end
 
-    self:ClearWeaponMotor(weaponModel)
+    self:ClearWeaponMotor(character, weaponModel)
     local motor = Instance.new("Motor6D")
     motor.Name = "ControllerWeaponMotor"
     motor.Part0 = hand
-    motor.Part1 = handle
+    motor.Part1 = handlePart
     motor.C0 = WeaponVisuals.GetGripCFrame(config)
-    motor.C1 = CFrame.identity
+    motor.C1 = handleC1 or CFrame.identity
     motor.Parent = hand
     weaponModel:SetAttribute("AttachMode", "RightHand")
     return true
@@ -172,18 +237,19 @@ end
 function WeaponService:AttachWeaponToBackHolster(character, weaponModel, config)
     if not character or not weaponModel or not config then return false end
     local torso = self:GetBackHolsterPart(character)
-    local handle = weaponModel:FindFirstChild(config.MainHandle or "HandleRight", true)
-    if not torso or not handle or not torso:IsA("BasePart") or not handle:IsA("BasePart") then
+    local handlePart, handleC1, marker = self:GetMainHandlePartAndC1(weaponModel, config)
+    if not torso or not torso:IsA("BasePart") or not handlePart or not handlePart:IsA("BasePart") then
+        warn(string.format("[WeaponService] Cannot attach %s to back holster. Handle marker %s is %s.", tostring(config.WeaponName), tostring(config.MainHandle or "HandleRight"), marker and marker.ClassName or "missing"))
         return false
     end
 
-    self:ClearWeaponMotor(weaponModel)
+    self:ClearWeaponMotor(character, weaponModel)
     local motor = Instance.new("Motor6D")
     motor.Name = "ControllerWeaponMotor"
     motor.Part0 = torso
-    motor.Part1 = handle
+    motor.Part1 = handlePart
     motor.C0 = WeaponVisuals.GetBackHolsterCFrame(config)
-    motor.C1 = CFrame.identity
+    motor.C1 = handleC1 or CFrame.identity
     motor.Parent = torso
     weaponModel:SetAttribute("AttachMode", "BackHolster")
     return true
@@ -196,26 +262,43 @@ function WeaponService:EquipWeapon(player, weaponName)
     if not config then return false end
 
     local existing = self:GetCharacterWeapon(character)
-    if existing then existing:Destroy() end
-
-    local source = self:ResolvePath(config.ModelPath)
-    if not source then
-        warn(string.format("[WeaponService] Missing weapon model for %s; using generated rifle fallback", tostring(weaponName)))
+    if existing then
+        self:ClearWeaponMotor(character, existing)
+        existing:Destroy()
     end
 
+    local source, resolvedConfig = self:ResolveWeaponSource(config, weaponName)
+    config = resolvedConfig or config
     local clone = source and source:Clone() or self:CreateFallbackWeaponModel(weaponName)
     clone.Name = "EquippedWeaponVisual"
     clone:SetAttribute("WeaponName", weaponName)
     clone:SetAttribute("VisualConfigName", config.WeaponName or weaponName)
     clone.Parent = character
-    self:PrepareWeaponModel(clone)
+
+    local handlePart = self:GetMainHandlePartAndC1(clone, config)
+    if not handlePart then
+        warn(string.format("[WeaponService] Weapon %s has no usable %s marker; using generated fallback", tostring(weaponName), tostring(config.MainHandle or "HandleRight")))
+        clone:Destroy()
+        clone = self:CreateFallbackWeaponModel(weaponName)
+        clone.Name = "EquippedWeaponVisual"
+        clone:SetAttribute("WeaponName", weaponName)
+        clone:SetAttribute("VisualConfigName", "GeneratedFallback")
+        clone.Parent = character
+        config = WeaponVisuals.Get(WeaponVisuals.DefaultWeaponId or "Rifle") or config
+        handlePart = self:GetMainHandlePartAndC1(clone, config)
+    end
+
+    self:PrepareWeaponModel(clone, handlePart)
     return self:AttachWeaponToRightHand(character, clone, config)
 end
 
 function WeaponService:UnequipWeapon(player)
     local character = player.Character
     local existing = self:GetCharacterWeapon(character)
-    if existing then existing:Destroy() end
+    if existing then
+        self:ClearWeaponMotor(character, existing)
+        existing:Destroy()
+    end
 end
 
 function WeaponService:SetAttachMode(player, mode)
@@ -423,7 +506,8 @@ end
 
 function WeaponService:Fire(player, weapon, runtime, payload)
     local playerState = self.PlayerState:Get(player)
-    if playerState.SafeZone and not playerState.TrainingRange then ValidationAudit.Reject(player, "Weapon", "SafeZone") return end
+    local debugSafeZoneBypass = Config.Debug and Config.Debug.AllowSafeZoneWeaponFireInStudio == true and RunService:IsStudio()
+    if playerState.SafeZone and not playerState.TrainingRange and not debugSafeZoneBypass then ValidationAudit.Reject(player, "Weapon", "SafeZone") return end
     if ActionLocks.IsControlLocked(playerState) then ValidationAudit.Reject(player, "Weapon", "ControlLocked") return end
     local now = os.clock()
     if runtime.ReloadUntil > now then ValidationAudit.Reject(player, "Weapon", "Reloading") return end
@@ -462,7 +546,8 @@ end
 function WeaponService:GetMuzzleOrigin(character, direction, clientOrigin, weapon)
     local serverOrigin
     if character then
-        local muzzle = character:FindFirstChild("Muzzle", true)
+        local weaponModel = self:GetCharacterWeapon(character)
+        local muzzle = weaponModel and self:GetMarker(weaponModel, "Muzzle")
         if muzzle then
             if muzzle:IsA("Attachment") then serverOrigin = muzzle.WorldPosition end
             if muzzle:IsA("BasePart") then serverOrigin = muzzle.Position end

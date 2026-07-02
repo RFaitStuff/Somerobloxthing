@@ -33,6 +33,7 @@ function PlayerState:Get(player)
             LocationId = "Hub",
             SafeZone = true,
             TrainingRange = false,
+            DevMode = "NormalPlay",
             ActiveHubPanel = nil,
             RoomOwnerUserId = nil,
             LastMelee = {},

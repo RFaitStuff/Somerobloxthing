@@ -81,7 +81,20 @@ function HubConsole:Start()
             if self.Gui and self.Gui.Enabled then self:Refresh() end
         end))
     end
-    bind(Net.RemoteEvents.HubUpdate, function(payload) self.State:ApplyHub(payload) end)
+    bind(Net.RemoteEvents.HubUpdate, function(payload)
+        self.State:ApplyHub(payload)
+        if typeof(payload) == "table" then
+            if payload.Type == "OpenPanel" then
+                self.ActivePanel = payload.Panel or self.ActivePanel
+                if self.Gui then self.Gui.Enabled = true end
+                self:RequestSnapshots()
+            elseif payload.Type == "HubRules" and payload.ActivePanel then
+                self.ActivePanel = payload.ActivePanel
+            elseif payload.ActivePanel then
+                self.ActivePanel = payload.ActivePanel
+            end
+        end
+    end)
     bind(Net.RemoteEvents.InventoryUpdate, function(payload) self.State:ApplyInventory(payload) end)
     bind(Net.RemoteEvents.CraftingUpdate, function(payload) self.State:ApplyCrafting(payload) end)
     bind(Net.RemoteEvents.MasteryUpdate, function(payload) self.State:ApplyMastery(payload) end)

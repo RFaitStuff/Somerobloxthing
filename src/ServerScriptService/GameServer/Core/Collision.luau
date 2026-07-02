@@ -35,20 +35,74 @@ function Collision:EnsureCollisionGroups()
     end
 end
 
+local function getCharacterPhysicalProperties()
+    local density = Config.Collision.CharacterDensity or 1
+    local friction = Config.Collision.CharacterFriction or 0
+    local elasticity = Config.Collision.CharacterElasticity or 0
+    local frictionWeight = Config.Collision.CharacterFrictionWeight or 0
+    local elasticityWeight = Config.Collision.CharacterElasticityWeight or 0
+    return PhysicalProperties.new(density, friction, elasticity, frictionWeight, elasticityWeight)
+end
+
+local function isAccessoryPart(part)
+    return part:FindFirstAncestorOfClass("Accessory") ~= nil
+end
+
 function Collision:ApplyCharacter(character)
+    local player = Players:GetPlayerFromCharacter(character)
     local group = Config.Collision.CharacterCollisionGroup
+    local rootOnlyCollision = Config.Collision.RootOnlyCharacterCollision ~= false
+    local rootCollides = Config.Collision.RootCanCollide ~= false
+    local physicalProperties = getCharacterPhysicalProperties()
+
     local function apply(instance)
-        if instance:IsA("BasePart") then
-            -- Modern API: set the BasePart.CollisionGroup property directly.
-            -- Do not force CanCollide here; keep Roblox rig/world collision behavior intact
-            -- while disabling character-vs-character collision through the group matrix.
-            instance.CollisionGroup = group
+        if not instance:IsA("BasePart") then return end
+
+        instance.CollisionGroup = group
+        instance.CustomPhysicalProperties = physicalProperties
+
+        if rootOnlyCollision then
+            -- The custom controller drives HumanoidRootPart velocity directly. If the torso,
+            -- head, accessories, or clothing handles also collide, Roblox physics fights the
+            -- controller every frame and the rig looks like it is rubber-banding. Keep one
+            -- clean root collider and make the visual body non-physical.
+            if instance.Name == "HumanoidRootPart" then
+                instance.CanCollide = rootCollides
+                instance.CanTouch = false
+                instance.Massless = false
+            else
+                instance.CanCollide = false
+                instance.CanTouch = false
+                instance.Massless = true
+            end
+        elseif isAccessoryPart(instance) and Config.Collision.DisableAccessoryCollision ~= false then
+            instance.CanCollide = false
+            instance.CanTouch = false
+            instance.Massless = true
         end
     end
+
     for _, descendant in ipairs(character:GetDescendants()) do
         apply(descendant)
     end
-    character.DescendantAdded:Connect(apply)
+
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if root and root:IsA("BasePart") and player then
+        -- The client owns the custom velocity controller. If the server owns the assembly,
+        -- server replication can shave/overwrite AssemblyLinearVelocity and look like rubber-band stutter.
+        pcall(function()
+            root:SetNetworkOwner(player)
+        end)
+    end
+
+    character.DescendantAdded:Connect(function(instance)
+        apply(instance)
+        if instance.Name == "HumanoidRootPart" and instance:IsA("BasePart") and player then
+            pcall(function()
+                instance:SetNetworkOwner(player)
+            end)
+        end
+    end)
 end
 
 return Collision

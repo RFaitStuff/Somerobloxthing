@@ -68,7 +68,13 @@ end
 
 function VelocityMotor:CommitVelocity()
     local c = self.Controller
-    if c.Root then c.Root.AssemblyLinearVelocity = c.Velocity end
+    if c.Root then
+        c.DebugPreCommitAssemblyVelocity = c.Root.AssemblyLinearVelocity
+        c.DebugCommitVelocity = c.Velocity
+        c.DebugCommitClock = os.clock()
+        c.Root.AssemblyLinearVelocity = c.Velocity
+        c.DebugPostCommitAssemblyVelocity = c.Root.AssemblyLinearVelocity
+    end
 end
 
 function VelocityMotor:LockedMove(dt, damping)
@@ -162,11 +168,34 @@ function VelocityMotor:SlideMove(dt)
     end
 end
 
+function VelocityMotor:GetGroundStickVelocity()
+    local c = self.Controller
+    if c.Mode == Modes.Sliding then
+        return Config.Movement.SlideGroundStickVelocity or -6
+    end
+
+    -- The old controller forced a fairly strong negative Y velocity every grounded frame.
+    -- Roblox then corrected the HumanoidRootPart back up through floor collision, which looked
+    -- like a constant animation/rig bounce. Only apply real ground-stick when it is needed.
+    local planarSpeed = Vector3.new(c.Velocity.X, 0, c.Velocity.Z).Magnitude
+    local normal = c.GroundNormal or Vector3.yAxis
+    local flatGround = normal.Y >= (Config.Movement.FlatGroundNormalY or 0.985)
+    local stableSpeed = Config.Movement.StableGroundMaxSpeed or 2
+
+    if flatGround and planarSpeed <= stableSpeed and c.Mode ~= Modes.Crouching then
+        return Config.Movement.StableGroundStickVelocity or 0
+    end
+
+    return Config.Movement.GroundStickVelocity or -2.5
+end
+
 function VelocityMotor:ApplyGravity(dt, scale)
     local c = self.Controller
-    if c.IsGrounded and c.Velocity.Y < 0 then
-        local stick = c.Mode == Modes.Sliding and Config.Movement.SlideGroundStickVelocity or Config.Movement.GroundStickVelocity
-        c.Velocity = Vector3.new(c.Velocity.X, stick, c.Velocity.Z)
+    if c.IsGrounded and c.Velocity.Y <= 0 then
+        local stick = self:GetGroundStickVelocity()
+        -- Never slam the root downward while grounded. A small/zero stick velocity is enough for
+        -- flat ground, while slopes/sliding still get a little downward bias.
+        c.Velocity = Vector3.new(c.Velocity.X, math.max(stick, math.min(c.Velocity.Y, 0)), c.Velocity.Z)
     else
         c.Velocity += Vector3.yAxis * Config.Movement.Gravity * scale * dt
     end
@@ -194,9 +223,54 @@ end
 
 function VelocityMotor:AvoidDrivingIntoWalls()
     local c = self.Controller
-    if not c.HasWall then return end
-    local into = c.Velocity:Dot(-c.WallNormal)
-    if into > 0 then c.Velocity += c.WallNormal * into end
+    c.DebugWallVelocityBlock = { Applied = false, Reason = "NoWallContact" }
+    if not c.HasWallContact then return end
+    if c.WallContactIsMemory and Config.Movement.WallCollisionBlockMemory ~= true then
+        c.DebugWallVelocityBlock = { Applied = false, Reason = "MemoryIgnored" }
+        return
+    end
+    if not c.WallNormal or c.WallNormal.Magnitude <= 0.05 then
+        c.DebugWallVelocityBlock = { Applied = false, Reason = "NoNormal" }
+        return
+    end
+    if math.abs(c.WallNormal.Y) > (Config.Movement.MaxWallNormalY or 0.25) then
+        c.DebugWallVelocityBlock = { Applied = false, Reason = "VerticalNormal", Normal = c.WallNormal }
+        return
+    end
+
+    local normal = c.WallNormal.Unit
+    local into = c.Velocity:Dot(-normal)
+    if into <= (Config.Movement.WallCollisionMinIntoSpeed or 1.5) then
+        c.DebugWallVelocityBlock = { Applied = false, Reason = "NotDrivingIntoWall", Into = into, Normal = normal }
+        return
+    end
+
+    local move = c:GetMoveDirection()
+    local inputIntoWall = move.Magnitude > 0.05 and move.Unit:Dot(-normal) or 0
+    local mode = c.Mode
+    local isParkourWallMode = mode == Modes.WallLatched or mode == Modes.WallHopping or mode == Modes.BulletJumping or mode == Modes.AimGliding or mode == Modes.Sliding
+    if c.IsGrounded and not isParkourWallMode and inputIntoWall < (Config.Movement.WallCollisionMinInputIntoWall or 0.12) then
+        c.DebugWallVelocityBlock = {
+            Applied = false,
+            Reason = "InputNotIntoWall",
+            Into = into,
+            InputIntoWall = inputIntoWall,
+            Normal = normal,
+        }
+        return
+    end
+
+    local before = c.Velocity
+    c.Velocity += normal * into
+    c.DebugWallVelocityBlock = {
+        Applied = true,
+        Reason = "Blocked",
+        Into = into,
+        InputIntoWall = inputIntoWall,
+        Normal = normal,
+        Before = before,
+        After = c.Velocity,
+    }
 end
 
 function VelocityMotor:ClampVelocity()
